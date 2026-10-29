@@ -4,48 +4,76 @@
 
 @layer base {
   :root {
-    --background: 210 20% 98%;
-    --foreground: 222 47% 11%;
+    /* Editorial Typography Font Stacks */
+    --font-sans: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-serif: var(--font-serif), "Newsreader", "Lora", Charter, "Bitstream Charter", Cambria, Georgia, serif;
+    --font-mono: var(--font-mono), "JetBrains Mono", ui-monospace, SFMono-Regular, "Cascadia Code", Menlo, Consolas, monospace;
+
+    /* Serene light canvas - warm off-white alabaster (WCAG AAA compliant) */
+    --background: 40 20% 99%;
+    --foreground: 220 25% 12%;
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 220 25% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 221 83% 53%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 94%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 221 83% 53%;
-    --radius: 0.5rem;
+    --popover-foreground: 220 25% 12%;
+    --primary: 220 30% 14%;
+    --primary-foreground: 40 18% 99%;
+    --secondary: 35 15% 95%;
+    --secondary-foreground: 220 25% 14%;
+    --muted: 35 15% 94%;
+    --muted-foreground: 215 12% 46%;
+    --accent: 35 18% 93%;
+    --accent-foreground: 220 25% 12%;
+    --destructive: 0 75% 55%;
+    --destructive-foreground: 40 18% 99%;
+    --border: 35 15% 88%;
+    --input: 35 15% 88%;
+    --ring: 220 25% 14%;
+    --radius: 0.75rem;
+
+    /* First-class Sepia / Warm Paper palette */
+    --sepia-bg: #fbf0d9;
+    --sepia-fg: #433422;
+    --sepia-card: #f4e6cb;
+    --sepia-card-hover: #ede0c2;
+    --sepia-border: #e7d5b5;
+    --sepia-muted: #786248;
+    --sepia-accent: #ebd3aa;
+
+    /* Multi-stage light shadows with top specular reflection */
+    --shadow-card: 0 1px 2px 0 rgba(0, 0, 0, 0.03), 0 4px 12px -2px rgba(0, 0, 0, 0.04);
+    --shadow-card-hover: 0 2px 4px 0 rgba(0, 0, 0, 0.03), 0 12px 28px -4px rgba(0, 0, 0, 0.08);
+    --specular-inner: inset 0 1px 0 0 rgba(255, 255, 255, 0.9);
+    --specular-inner-hover: inset 0 1px 0 0 rgba(255, 255, 255, 1);
   }
 
   .dark {
+    /* Required distraction-free dark baseline: hsl(224, 71%, 4%) */
     --background: 224 71% 4%;
-    --foreground: 213 31% 91%;
-    --card: 224 71% 7%;
-    --card-foreground: 213 31% 91%;
-    --popover: 224 71% 7%;
-    --popover-foreground: 213 31% 91%;
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 11%;
-    --secondary: 222 47% 11%;
+    --foreground: 213 25% 92%;
+    --card: 224 45% 7%;
+    --card-foreground: 213 25% 92%;
+    --popover: 224 45% 7%;
+    --popover-foreground: 213 25% 92%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 224 71% 4%;
+    --secondary: 223 30% 11%;
     --secondary-foreground: 210 40% 98%;
-    --muted: 223 47% 11%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 216 34% 17%;
+    --muted: 223 30% 10%;
+    --muted-foreground: 215 15% 58%;
+    --accent: 216 25% 14%;
     --accent-foreground: 210 40% 98%;
-    --destructive: 0 63% 31%;
+    --destructive: 0 62% 42%;
     --destructive-foreground: 210 40% 98%;
-    --border: 216 34% 17%;
-    --input: 216 34% 17%;
-    --ring: 224 76% 48%;
+    --border: 216 24% 15%;
+    --input: 216 24% 15%;
+    --ring: 217 90% 60%;
+
+    /* Multi-stage dark shadows with Linear-grade top specular highlight */
+    --shadow-card: 0 4px 20px -2px rgba(0, 0, 0, 0.7), 0 1px 3px 0 rgba(0, 0, 0, 0.5);
+    --shadow-card-hover: 0 16px 40px -6px rgba(0, 0, 0, 0.85), 0 4px 12px -2px rgba(0, 0, 0, 0.6);
+    --specular-inner: inset 0 1px 0 0 rgba(255, 255, 255, 0.08), inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+    --specular-inner-hover: inset 0 1px 0 0 rgba(255, 255, 255, 0.16), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
   }
 
   * {
@@ -53,26 +81,376 @@
   }
 
   body {
-    @apply bg-background text-foreground antialiased selection:bg-primary/20 selection:text-primary;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    @apply bg-background text-foreground antialiased selection:bg-foreground/10 selection:text-foreground;
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "tnum";
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition: background-color 250ms cubic-bezier(0.16, 1, 0.3, 1),
+      color 200ms ease;
   }
 }
 
-/* Emil Kowalski Design Engineering Micro-Interactions */
+/* Typography Utility Classes */
+.font-sans {
+  font-family: var(--font-sans);
+}
+
+.font-serif {
+  font-family: var(--font-serif);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Subtle ambient backdrop grid pattern */
+.bg-ambient-pattern {
+  background-image: radial-gradient(
+    rgba(120, 120, 120, 0.07) 1px,
+    transparent 1px
+  );
+  background-size: 28px 28px;
+}
+
+.dark .bg-ambient-pattern {
+  background-image: radial-gradient(
+    rgba(255, 255, 255, 0.04) 1px,
+    transparent 1px
+  );
+  background-size: 28px 28px;
+}
+
+/* Ambient top glow cone */
+.ambient-glow {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100vw;
+  max-width: 1200px;
+  height: 480px;
+  background: radial-gradient(ellipse 60% 50% at 50% -10%, rgba(217, 119, 6, 0.06), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.dark .ambient-glow {
+  background: radial-gradient(ellipse 60% 50% at 50% -10%, rgba(99, 102, 241, 0.10), transparent 70%);
+}
+
+/* Emil Kowalski Design Engineering Physics & Micro-Interactions */
 .btn-press {
-  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1), background-color 160ms ease;
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease,
+    opacity 160ms ease;
+  will-change: transform;
 }
 
 .btn-press:active {
   transform: scale(0.97);
 }
 
+/* Linear-Grade Card Surface with Specular Lighting & Gradient Depth */
+.card-linear {
+  background: linear-gradient(180deg, hsl(var(--card)) 0%, hsl(var(--card) / 0.94) 100%);
+  box-shadow: var(--specular-inner), var(--shadow-card);
+  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 160ms ease,
+    background-color 160ms ease;
+  will-change: transform, box-shadow;
+}
+
+.dark .card-linear {
+  background: linear-gradient(180deg, hsl(224, 45%, 7.5%) 0%, hsl(224, 52%, 5.5%) 100%);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .card-linear:hover {
+    transform: translateY(-2px);
+    border-color: hsl(var(--foreground) / 0.22);
+    box-shadow: var(--specular-inner-hover), var(--shadow-card-hover);
+  }
+}
+
+/* Card Hover alias for seamless backward compatibility */
 .card-hover {
-  transition: transform 200ms cubic-bezier(0.23, 1, 0.32, 1), box-shadow 200ms ease, border-color 200ms ease;
+  background: linear-gradient(180deg, hsl(var(--card)) 0%, hsl(var(--card) / 0.94) 100%);
+  box-shadow: var(--specular-inner), var(--shadow-card);
+  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 160ms ease,
+    background-color 160ms ease;
+  will-change: transform, box-shadow;
+}
+
+.dark .card-hover {
+  background: linear-gradient(180deg, hsl(224, 45%, 7.5%) 0%, hsl(224, 52%, 5.5%) 100%);
 }
 
 @media (hover: hover) and (pointer: fine) {
   .card-hover:hover {
     transform: translateY(-2px);
+    border-color: hsl(var(--foreground) / 0.22);
+    box-shadow: var(--specular-inner-hover), var(--shadow-card-hover);
   }
+}
+
+/* Glassmorphism Surface with Saturation Boost */
+.glass-surface {
+  background: hsl(var(--card) / 0.82);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+}
+
+.glass-nav {
+  background: hsl(var(--background) / 0.85);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  box-shadow: inset 0 -1px 0 0 hsl(var(--border) / 0.6);
+}
+
+/* Staggered Content Entrances */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 320ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Modal Animation (0.95 -> 1 with opacity) */
+@keyframes modalEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-modal-enter {
+  animation: modalEnter 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* High-End Clean Badges (Zero heavy neon drop-shadows) */
+.badge-amber {
+  background-color: rgba(245, 158, 11, 0.1);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.dark .badge-amber {
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.badge-emerald {
+  background-color: rgba(16, 185, 129, 0.1);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.dark .badge-emerald {
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.badge-primary {
+  background-color: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  border: 1px solid hsl(var(--primary) / 0.2);
+}
+
+/* Steady status indicators (replacing noisy animate-ping loops) */
+.status-dot-emerald {
+  height: 0.5rem;
+  width: 0.5rem;
+  border-radius: 9999px;
+  background-color: #10b981;
+  box-shadow: 0 0 0 2px hsl(var(--card)), 0 0 0 4px rgba(16, 185, 129, 0.25);
+}
+
+.status-dot-primary {
+  height: 0.5rem;
+  width: 0.5rem;
+  border-radius: 9999px;
+  background-color: hsl(var(--primary));
+  box-shadow: 0 0 0 2px hsl(var(--card)), 0 0 0 4px hsl(var(--primary) / 0.25);
+}
+
+/* First-Class Reading Theme Palettes */
+.reader-warm,
+.reader-sepia {
+  background-color: var(--sepia-bg) !important;
+  color: var(--sepia-fg) !important;
+}
+
+.reader-bone {
+  background-color: #f7f4ed !important;
+  color: #292524 !important;
+}
+
+.reader-sage {
+  background-color: #edf2ec !important;
+  color: #1c2e24 !important;
+}
+
+.reader-slate {
+  background-color: #18181b !important;
+  color: #f4f4f5 !important;
+}
+
+.reader-light {
+  background-color: #ffffff !important;
+  color: #171717 !important;
+}
+
+.reader-dark {
+  background-color: hsl(224, 71%, 4%) !important;
+  color: hsl(213, 25%, 92%) !important;
+}
+
+.reader-warm article,
+.reader-sepia article {
+  color: #382e25;
+}
+
+.reader-bone article {
+  color: #292524;
+}
+
+.reader-sage article {
+  color: #1c2e24;
+}
+
+.reader-slate article {
+  color: #f4f4f5;
+}
+
+.reader-light article {
+  color: #171717;
+}
+
+.reader-dark article {
+  color: hsl(213, 25%, 92%);
+}
+
+/* Editorial Typography (.reader-prose) */
+.reader-measure {
+  max-width: 68ch;
+}
+
+.reader-prose p {
+  line-height: 1.85;
+  margin-bottom: 1.6em;
+  letter-spacing: -0.003em;
+}
+
+.reader-prose h2 {
+  font-size: 1.65rem;
+  font-weight: 600;
+  margin-top: 2.2em;
+  margin-bottom: 0.8em;
+  letter-spacing: -0.022em;
+  line-height: 1.25;
+}
+
+.reader-prose h3 {
+  font-size: 1.3rem;
+  font-weight: 600;
+  margin-top: 1.8em;
+  margin-bottom: 0.6em;
+  letter-spacing: -0.018em;
+}
+
+.reader-prose blockquote {
+  border-left-width: 2.5px;
+  border-left-color: currentColor;
+  opacity: 0.88;
+  padding-left: 1.25rem;
+  font-style: italic;
+  margin-top: 1.8em;
+  margin-bottom: 1.8em;
+}
+
+.reader-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  padding: 0.2em 0.45em;
+  border-radius: 0.375rem;
+  background-color: hsl(var(--muted));
+  border: 1px solid hsl(var(--border) / 0.6);
+}
+
+.reader-prose pre {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  padding: 1.25rem;
+  border-radius: 0.75rem;
+  background-color: hsl(var(--muted) / 0.7);
+  border: 1px solid hsl(var(--border) / 0.8);
+  overflow-x: auto;
+  margin: 1.8em 0;
+  box-shadow: var(--shadow-card);
+}
+
+.reader-prose pre code {
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+.reader-prose .lead {
+  font-size: 1.2rem;
+  line-height: 1.75;
+  opacity: 0.92;
+  margin-bottom: 1.8em;
+}
+
+/* Reading Progress Bar (Sleek flat hairline without neon blur) */
+.reading-progress-track {
+  height: 2px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  background-color: transparent;
+}
+
+.reading-progress-bar {
+  height: 100%;
+  transition: width 100ms ease-out;
+}
+
+/* Custom Sleek Scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.22);
+  border-radius: 9999px;
+  transition: background-color 200ms ease;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.45);
 }
