@@ -4,6 +4,8 @@ import https from "node:https";
 import dns from "node:dns/promises";
 import net from "node:net";
 
+import { isAllowedByRobotsTxt } from "../middleware/robots";
+
 export const fetchRouter = Router();
 
 export interface FetchQueryParams {
@@ -161,7 +163,18 @@ fetchRouter.get("/", async (req: Request<unknown, unknown, unknown, FetchQueryPa
       return;
     }
 
-    // 2. Prepare upstream request
+    // 2. Robots.txt Politeness Check
+    const robotsResult = await isAllowedByRobotsTxt(targetUrl);
+    if (!robotsResult.allowed) {
+      res.status(403).json({
+        error: "Upstream access blocked by robots.txt policy",
+        code: "ROBOTS_TXT_DISALLOWED",
+        details: robotsResult.reason,
+      } satisfies FetchErrorResponse);
+      return;
+    }
+
+    // 3. Prepare upstream request
     const parsedUrl = new URL(targetUrl);
     const client = parsedUrl.protocol === "https:" ? https : http;
 

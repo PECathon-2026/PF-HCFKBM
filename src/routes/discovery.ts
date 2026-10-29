@@ -475,3 +475,64 @@ discoveryRouter.get(
     }
   }
 );
+
+/**
+ * POST /api/discovery/blogroll (Bonus Item)
+ * Ingests discovered "A links to B" blogroll edges extracted from client or crawler,
+ * recording graph linkages in feed_edges table.
+ */
+discoveryRouter.post(
+  "/blogroll",
+  async (
+    req: Request<unknown, unknown, { sourceUrl: string; targetUrls: string[] }>,
+    res: Response<{ status: string; edgesAdded: number } | DiscoveryErrorResponse>,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const { sourceUrl, targetUrls } = req.body;
+
+      if (!sourceUrl || !Array.isArray(targetUrls) || targetUrls.length === 0) {
+        res.status(400).json({
+          error: "sourceUrl (string) and targetUrls (array) are required",
+          code: "INVALID_BLOGROLL_PAYLOAD",
+        });
+        return;
+      }
+
+      const normalizedSource = normalizeUrl(sourceUrl);
+      if (!normalizedSource) {
+        res.status(400).json({ error: "Invalid sourceUrl", code: "INVALID_SOURCE_URL" });
+        return;
+      }
+
+      const sourceId = feedIdFromUrl(normalizedSource);
+      let edgesAdded = 0;
+
+      for (const rawTarget of targetUrls.slice(0, 50)) {
+        const normalizedTarget = normalizeUrl(rawTarget);
+        if (!normalizedTarget || normalizedTarget === normalizedSource) continue;
+
+        const targetId = feedIdFromUrl(normalizedTarget);
+
+        await db.execute({
+          sql: `INSERT OR IGNORE INTO feeds (id, url, title, status) VALUES (?, ?, ?, 'pending')`,
+          args: [targetId, normalizedTarget, new URL(normalizedTarget).hostname],
+        });
+
+        await db.execute({
+          sql: `INSERT INTO feed_edges (source_feed_id, target_feed_id, relation_type, weight)
+                VALUES (?, ?, 'blogroll', 1)
+                ON CONFLICT(source_feed_id, target_feed_id, relation_type)
+                DO UPDATE SET weight = weight + 1, updated_at = CURRENT_TIMESTAMP`,
+          args: [sourceId, targetId],
+        });
+
+        edgesAdded++;
+      }
+
+      res.status(200).json({ status: "ok", edgesAdded });
+    } catch (error: unknown) {
+      next(error);
+    }
+  }
+);

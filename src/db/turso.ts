@@ -103,7 +103,22 @@ export async function runMigrations(): Promise<{ success: boolean; appliedTables
     `CREATE INDEX IF NOT EXISTS idx_batch_feeds_batch ON batch_feeds(batch_id);`,
     `CREATE INDEX IF NOT EXISTS idx_batch_feeds_feed ON batch_feeds(feed_id);`,
 
-    // 4. rate_limits table
+    // 4. feed_edges table (for blogroll and co-subscription graph linkages)
+    `CREATE TABLE IF NOT EXISTS feed_edges (
+      source_feed_id TEXT NOT NULL,
+      target_feed_id TEXT NOT NULL,
+      relation_type TEXT NOT NULL CHECK(relation_type IN ('co_subscription', 'blogroll')),
+      weight INTEGER DEFAULT 1,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (source_feed_id, target_feed_id, relation_type),
+      FOREIGN KEY (source_feed_id) REFERENCES feeds(id) ON DELETE CASCADE,
+      FOREIGN KEY (target_feed_id) REFERENCES feeds(id) ON DELETE CASCADE
+    );`,
+
+    `CREATE INDEX IF NOT EXISTS idx_feed_edges_source ON feed_edges(source_feed_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_feed_edges_target ON feed_edges(target_feed_id);`,
+
+    // 5. rate_limits table
     `CREATE TABLE IF NOT EXISTS rate_limits (
       key TEXT PRIMARY KEY,
       count INTEGER DEFAULT 1,
@@ -118,7 +133,7 @@ export async function runMigrations(): Promise<{ success: boolean; appliedTables
     for (const query of migrationQueries) {
       await db.execute(query);
     }
-    return { success: true, appliedTables: tables };
+    return { success: true, appliedTables: ["feeds", "subscription_batches", "batch_feeds", "feed_edges", "rate_limits"] };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error during migrations";
     console.error("[Turso Migration Error]:", message);
