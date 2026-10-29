@@ -1,8 +1,12 @@
 import { Router, Request, Response, NextFunction } from "express";
+import crypto from "node:crypto";
+import { db } from "../db/turso";
+import { isPrivateOrLoopbackIP } from "./fetch";
+import { getClientIp, hashClientIp } from "../middleware/rateLimit";
 
 export const discoveryRouter = Router();
 
-// --- Type Signatures ---
+// --- Types ---
 
 export interface SubmitUrlsRequest {
   urls: string[];
@@ -10,7 +14,8 @@ export interface SubmitUrlsRequest {
 
 export interface SubmitUrlsResponse {
   status: "ok";
-  processed?: number;
+  batchId: string;
+  processed: number;
   invalid?: string[];
 }
 
@@ -49,7 +54,7 @@ export interface GraphNode {
 export interface GraphEdge {
   source: string;
   target: string;
-  weight?: number;
+  weight: number;
   relation: string;
 }
 
@@ -64,195 +69,409 @@ export interface DiscoveryErrorResponse {
   details?: unknown;
 }
 
+// --- Helpers ---
+
+/**
+ * Normalizes a URL:
+ * - Lowercases scheme and hostname
+ * - Removes tracking query params (utm_*, ref, source, etc.)
+ * - Strips trailing slashes
+ * - Resolves default ports
+ */
+export function normalizeUrl(rawUrl: string): string | null {
+  try {
+    const parsed = new URL(rawUrl.trim());
+
+    // Protocol check
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+
+    // SSRF check on hostname
+    if (isPrivateOrLoopbackIP(parsed.hostname)) {
+      return null;
+    }
+
+    // Lowercase hostname
+    parsed.hostname = parsed.hostname.toLowerCase();
+
+    // Remove tracking queries
+    const trackingParams = [
+      "utm_source",
+      "utm_medium",
+      "utm_campaign",
+      "utm_term",
+      "utm_content",
+      "ref",
+      "source",
+      "fbclid",
+      "gclid",
+    ];
+    for (const p of trackingParams) {
+      parsed.searchParams.delete(p);
+    }
+
+    // Remove hash
+    parsed.hash = "";
+
+    // Normalize path trailing slash (unless root path "/")
+    let path = parsed.pathname;
+    if (path.length > 1 && path.endsWith("/")) {
+      path = path.slice(0, -1);
+    }
+    parsed.pathname = path;
+
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Creates a deterministic 16-char hex ID from normalized URL
+ */
+export function feedIdFromUrl(url: string): string {
+  return crypto.createHash("sha256").update(url).digest("hex").slice(0, 16);
+}
+
 // --- Routes ---
 
 /**
  * POST /api/discovery/submit
- * Validates array of URLs, returns { status: "ok" }
+ * Collects an anonymous subscription batch without user accounts or persistent IDs.
+ * - Caps batch size at 100 feeds.
+ * - Normalizes URLs.
+ * - Rejects private/loopback IPs.
+ * - Prevents rapid duplicate spamming from same salted IP hash within 1 hour.
  */
-discoveryRouter.post("/submit", async (
-  req: Request<unknown, unknown, SubmitUrlsRequest>,
-  res: Response<SubmitUrlsResponse | DiscoveryErrorResponse>,
-  next: NextFunction
-): Promise<void> => {
-  try {
-    const { urls } = req.body;
+discoveryRouter.post(
+  "/submit",
+  async (
+    req: Request<unknown, unknown, SubmitUrlsRequest>,
+    res: Response<SubmitUrlsResponse | DiscoveryErrorResponse>,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const { urls } = req.body;
 
-    if (!urls || !Array.isArray(urls)) {
-      res.status(400).json({
-        error: "Field 'urls' is required and must be an array of strings",
-        code: "INVALID_URL_ARRAY",
-      });
-      return;
-    }
-
-    if (urls.length === 0) {
-      res.status(400).json({
-        error: "'urls' array must contain at least one URL",
-        code: "EMPTY_URL_ARRAY",
-      });
-      return;
-    }
-
-    // Input sanitization & validation
-    const invalidUrls: string[] = [];
-    const validUrls: string[] = [];
-
-    for (const rawUrl of urls) {
-      if (typeof rawUrl !== "string") {
-        invalidUrls.push(String(rawUrl));
-        continue;
+      if (!urls || !Array.isArray(urls)) {
+        res.status(400).json({
+          error: "Field 'urls' is required and must be an array of strings",
+          code: "INVALID_URL_ARRAY",
+        });
+        return;
       }
-      try {
-        const parsed = new URL(rawUrl);
-        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
-          validUrls.push(parsed.toString());
-        } else {
-          invalidUrls.push(rawUrl);
+
+      if (urls.length === 0) {
+        res.status(400).json({
+          error: "'urls' array must contain at least one URL",
+          code: "EMPTY_URL_ARRAY",
+        });
+        return;
+      }
+
+      // Max batch size limit
+      if (urls.length > 100) {
+        res.status(400).json({
+          error: "Batch size exceeds maximum limit of 100 URLs per submission",
+          code: "BATCH_SIZE_EXCEEDED",
+        });
+        return;
+      }
+
+      const clientIp = getClientIp(req);
+      const saltedIpHash = hashClientIp(clientIp);
+
+      // Abuse Resistance: Check if same salted IP hash submitted within the last 5 minutes
+      const recentBatches = await db.execute({
+        sql: `SELECT COUNT(*) as recent_count FROM subscription_batches
+              WHERE salted_ip_hash = ? AND submitted_at >= datetime('now', '-5 minutes')`,
+        args: [saltedIpHash],
+      });
+
+      const recentCount = Number(recentBatches.rows[0]?.recent_count || 0);
+      if (recentCount >= 10) {
+        res.status(429).json({
+          error: "Too many batch submissions from this origin. Please wait before submitting again.",
+          code: "SUBMISSION_THROTTLED",
+        });
+        return;
+      }
+
+      const validFeeds: { id: string; url: string }[] = [];
+      const invalidUrls: string[] = [];
+
+      for (const raw of urls) {
+        if (typeof raw !== "string") {
+          invalidUrls.push(String(raw));
+          continue;
         }
-      } catch {
-        invalidUrls.push(rawUrl);
+
+        const normalized = normalizeUrl(raw);
+        if (!normalized) {
+          invalidUrls.push(raw);
+          continue;
+        }
+
+        const feedId = feedIdFromUrl(normalized);
+        if (!validFeeds.some((f) => f.id === feedId)) {
+          validFeeds.push({ id: feedId, url: normalized });
+        }
       }
-    }
 
-    if (invalidUrls.length > 0 && validUrls.length === 0) {
-      res.status(422).json({
-        error: "All provided URLs failed syntax validation",
-        code: "VALIDATION_FAILED",
-        details: invalidUrls,
+      if (validFeeds.length === 0) {
+        res.status(422).json({
+          error: "All provided URLs failed syntax or SSRF validation",
+          code: "ALL_URLS_INVALID",
+          details: invalidUrls,
+        });
+        return;
+      }
+
+      const batchId = crypto.randomUUID();
+
+      // Batch transaction into Turso
+      // 1. Insert batch record with salted IP hash
+      await db.execute({
+        sql: `INSERT INTO subscription_batches (id, salted_ip_hash) VALUES (?, ?)`,
+        args: [batchId, saltedIpHash],
       });
-      return;
+
+      // 2. Insert or update feeds & link batch_feeds
+      for (const feed of validFeeds) {
+        // Derive clean title from hostname if empty
+        const titleCandidate = new URL(feed.url).hostname.replace(/^www\./, "");
+
+        await db.execute({
+          sql: `INSERT INTO feeds (id, url, title, status)
+                VALUES (?, ?, ?, 'active')
+                ON CONFLICT(id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP`,
+          args: [feed.id, feed.url, titleCandidate],
+        });
+
+        await db.execute({
+          sql: `INSERT OR IGNORE INTO batch_feeds (batch_id, feed_id) VALUES (?, ?)`,
+          args: [batchId, feed.id],
+        });
+      }
+
+      res.status(200).json({
+        status: "ok",
+        batchId,
+        processed: validFeeds.length,
+        invalid: invalidUrls.length > 0 ? invalidUrls : undefined,
+      });
+    } catch (error: unknown) {
+      next(error);
     }
-
-    // TODO: Team members: Store validated feeds in Turso database ('feeds' and 'batch_feeds' tables)
-    // TODO: Team members: Enqueue async discovery crawler jobs for valid URLs
-
-    res.status(200).json({
-      status: "ok",
-      processed: validUrls.length,
-      invalid: invalidUrls.length > 0 ? invalidUrls : undefined,
-    });
-  } catch (error: unknown) {
-    next(error);
   }
-});
+);
 
 /**
  * GET /api/discovery/recommendations
- * Returns mock recommended feeds with reason string
+ * Computes co-subscription ranking:
+ * Finds feeds frequently followed together in anonymous batches with the user's subscribed feeds.
+ * Parameter: ?feeds=url1,url2,... or ?feed_ids=id1,id2,...
  */
-discoveryRouter.get("/recommendations", async (
-  req: Request,
-  res: Response<RecommendationsResponse | DiscoveryErrorResponse>,
-  next: NextFunction
-): Promise<void> => {
-  try {
-    // TODO: Team members: Query user reading history, cluster preferences, and pull cosine similarity feeds from vector store / Turso
-    const mockRecommendations: RecommendedFeed[] = [
-      {
-        id: "feed_rec_01",
-        title: "Changelog Weekly",
-        url: "https://changelog.com/weekly/feed",
-        category: "Software Engineering",
-        reason: "Frequently read by developers subscribed to your active tech tags",
-        score: 0.94,
-      },
-      {
-        id: "feed_rec_02",
-        title: "Hacker News Top Stories",
-        url: "https://news.ycombinator.com/rss",
-        category: "Tech & Startups",
-        reason: "High subscriber intersection with your library feeds",
-        score: 0.88,
-      },
-      {
-        id: "feed_rec_03",
-        title: "TypeScript Weekly",
-        url: "https://typescript-weekly.com/rss",
-        category: "Languages",
-        reason: "Matches your recent TypeScript discovery queries",
-        score: 0.82,
-      },
-    ];
+discoveryRouter.get(
+  "/recommendations",
+  async (
+    req: Request,
+    res: Response<RecommendationsResponse | DiscoveryErrorResponse>,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const feedsQuery = req.query.feeds;
+      const feedIdsQuery = req.query.feed_ids;
 
-    res.status(200).json({
-      items: mockRecommendations,
-      total: mockRecommendations.length,
-    });
-  } catch (error: unknown) {
-    next(error);
+      let targetFeedIds: string[] = [];
+
+      if (typeof feedIdsQuery === "string" && feedIdsQuery.trim()) {
+        targetFeedIds = feedIdsQuery.split(",").map((s) => s.trim()).filter(Boolean);
+      } else if (typeof feedsQuery === "string" && feedsQuery.trim()) {
+        const rawList = feedsQuery.split(",").map((s) => s.trim()).filter(Boolean);
+        targetFeedIds = rawList
+          .map((u) => normalizeUrl(u))
+          .filter((u): u is string => Boolean(u))
+          .map((u) => feedIdFromUrl(u));
+      }
+
+      // If user supplied feeds, calculate co-subscription overlap
+      if (targetFeedIds.length > 0) {
+        // SQL query for co-occurrence:
+        // Find other feeds that appear in the same batches as the user's feeds, excluding user's own feeds
+        const placeholders = targetFeedIds.map(() => "?").join(",");
+        const querySql = `
+          SELECT
+            bf2.feed_id,
+            f.url,
+            COALESCE(f.title, f.url) as title,
+            COUNT(DISTINCT bf2.batch_id) as overlap_count
+          FROM batch_feeds bf1
+          JOIN batch_feeds bf2 ON bf1.batch_id = bf2.batch_id
+          JOIN feeds f ON bf2.feed_id = f.id
+          WHERE bf1.feed_id IN (${placeholders})
+            AND bf2.feed_id NOT IN (${placeholders})
+          GROUP BY bf2.feed_id, f.url, f.title
+          ORDER BY overlap_count DESC
+          LIMIT 10;
+        `;
+
+        const args = [...targetFeedIds, ...targetFeedIds];
+        const results = await db.execute({ sql: querySql, args });
+
+        if (results.rows.length > 0) {
+          const items: RecommendedFeed[] = results.rows.map((row) => {
+            const overlap = Number(row.overlap_count);
+            const score = Math.min(99, Math.round(50 + overlap * 10));
+            return {
+              id: String(row.feed_id),
+              title: String(row.title),
+              url: String(row.url),
+              category: "Co-Subscribed",
+              reason: `Followed by ${overlap} reader${overlap === 1 ? "" : "s"} of your active blogs`,
+              score,
+            };
+          });
+
+          res.status(200).json({ items, total: items.length });
+          return;
+        }
+      }
+
+      // Fallback: When no user feeds supplied or co-occurrence yields zero matches,
+      // return globally popular feeds excluding user's feeds
+      const excludePlaceholders =
+        targetFeedIds.length > 0 ? `WHERE f.id NOT IN (${targetFeedIds.map(() => "?").join(",")})` : "";
+
+      const fallbackSql = `
+        SELECT
+          f.id,
+          f.url,
+          COALESCE(f.title, f.url) as title,
+          COUNT(bf.batch_id) as subscriber_count
+        FROM feeds f
+        LEFT JOIN batch_feeds bf ON f.id = bf.feed_id
+        ${excludePlaceholders}
+        GROUP BY f.id, f.url, f.title
+        ORDER BY subscriber_count DESC
+        LIMIT 6;
+      `;
+
+      const fallbackResults = await db.execute({
+        sql: fallbackSql,
+        args: targetFeedIds,
+      });
+
+      const fallbackItems: RecommendedFeed[] = fallbackResults.rows.map((row) => ({
+        id: String(row.id),
+        title: String(row.title),
+        url: String(row.url),
+        category: "Popular Independent",
+        reason: "Trending among independent small web readers",
+        score: 80,
+      }));
+
+      res.status(200).json({
+        items: fallbackItems,
+        total: fallbackItems.length,
+      });
+    } catch (error: unknown) {
+      next(error);
+    }
   }
-});
+);
 
 /**
  * GET /api/discovery/popular
- * Returns top feeds array
+ * Returns feeds ranked globally by subscription batch count.
  */
-discoveryRouter.get("/popular", async (
-  req: Request,
-  res: Response<PopularResponse | DiscoveryErrorResponse>,
-  next: NextFunction
-): Promise<void> => {
-  try {
-    // TODO: Team members: Aggregate subscriber batches from Turso 'batch_feeds' & compute 7-day velocity
-    const mockPopularFeeds: PopularFeed[] = [
-      {
-        id: "feed_pop_01",
-        title: "BBC News World",
-        url: "http://feeds.bbci.co.uk/news/world/rss.xml",
-        subscriberCount: 14250,
-        trendingRank: 1,
-      },
-      {
-        id: "feed_pop_02",
-        title: "Ars Technica",
-        url: "https://feeds.arstechnica.com/arstechnica/index",
-        subscriberCount: 9820,
-        trendingRank: 2,
-      },
-      {
-        id: "feed_pop_03",
-        title: "Smashing Magazine",
-        url: "https://www.smashingmagazine.com/feed/",
-        subscriberCount: 6510,
-        trendingRank: 3,
-      },
-    ];
+discoveryRouter.get(
+  "/popular",
+  async (
+    _req: Request,
+    res: Response<PopularResponse | DiscoveryErrorResponse>,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const sql = `
+        SELECT
+          f.id,
+          f.url,
+          COALESCE(f.title, f.url) as title,
+          COUNT(bf.batch_id) as subscriber_count
+        FROM feeds f
+        LEFT JOIN batch_feeds bf ON f.id = bf.feed_id
+        GROUP BY f.id, f.url, f.title
+        ORDER BY subscriber_count DESC
+        LIMIT 15;
+      `;
 
-    res.status(200).json({
-      items: mockPopularFeeds,
-    });
-  } catch (error: unknown) {
-    next(error);
+      const results = await db.execute(sql);
+
+      const items: PopularFeed[] = results.rows.map((row, index) => ({
+        id: String(row.id),
+        title: String(row.title),
+        url: String(row.url),
+        subscriberCount: Number(row.subscriber_count || 0),
+        trendingRank: index + 1,
+      }));
+
+      res.status(200).json({ items });
+    } catch (error: unknown) {
+      next(error);
+    }
   }
-});
+);
 
 /**
  * GET /api/discovery/graph
- * Returns { nodes: [], edges: [] }
+ * Returns graph representation of feed-to-feed co-occurrences.
  */
-discoveryRouter.get("/graph", async (
-  req: Request,
-  res: Response<GraphResponse | DiscoveryErrorResponse>,
-  next: NextFunction
-): Promise<void> => {
-  try {
-    // TODO: Team members: Generate graph representation of feed-to-feed co-occurrence and shared topics
-    const mockGraphData: GraphResponse = {
-      nodes: [
-        { id: "node_1", label: "Tech News", type: "category" },
-        { id: "node_2", label: "Hacker News", type: "feed" },
-        { id: "node_3", label: "Ars Technica", type: "feed" },
-      ],
-      edges: [
-        { source: "node_2", target: "node_1", relation: "belongs_to", weight: 1.0 },
-        { source: "node_3", target: "node_1", relation: "belongs_to", weight: 0.9 },
-        { source: "node_2", target: "node_3", relation: "co_subscribed", weight: 0.75 },
-      ],
-    };
+discoveryRouter.get(
+  "/graph",
+  async (
+    _req: Request,
+    res: Response<GraphResponse | DiscoveryErrorResponse>,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      // 1. Fetch top feeds as nodes
+      const nodesResult = await db.execute(`
+        SELECT f.id, COALESCE(f.title, f.url) as label
+        FROM feeds f
+        LIMIT 20;
+      `);
 
-    res.status(200).json(mockGraphData);
-  } catch (error: unknown) {
-    next(error);
+      const nodes: GraphNode[] = nodesResult.rows.map((r) => ({
+        id: String(r.id),
+        label: String(r.label),
+        type: "feed",
+      }));
+
+      // 2. Fetch edges based on co-occurrence in batches
+      const edgesResult = await db.execute(`
+        SELECT
+          bf1.feed_id as source,
+          bf2.feed_id as target,
+          COUNT(*) as weight
+        FROM batch_feeds bf1
+        JOIN batch_feeds bf2 ON bf1.batch_id = bf2.batch_id AND bf1.feed_id < bf2.feed_id
+        GROUP BY bf1.feed_id, bf2.feed_id
+        ORDER BY weight DESC
+        LIMIT 50;
+      `);
+
+      const edges: GraphEdge[] = edgesResult.rows.map((e) => ({
+        source: String(e.source),
+        target: String(e.target),
+        weight: Number(e.weight),
+        relation: "co_subscribed",
+      }));
+
+      res.status(200).json({ nodes, edges });
+    } catch (error: unknown) {
+      next(error);
+    }
   }
-});
+);

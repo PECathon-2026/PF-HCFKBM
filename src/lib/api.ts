@@ -10,7 +10,8 @@ export interface SubmitUrlsPayload {
 
 export interface SubmitUrlsResult {
   status: "ok";
-  processed?: number;
+  batchId: string;
+  processed: number;
   invalid?: string[];
 }
 
@@ -49,7 +50,7 @@ export interface GraphNode {
 export interface GraphEdge {
   source: string;
   target: string;
-  weight?: number;
+  weight: number;
   relation: string;
 }
 
@@ -58,17 +59,41 @@ export interface GraphResult {
   edges: GraphEdge[];
 }
 
+export interface FetchProxyOptions {
+  etag?: string;
+  lastModified?: string;
+}
+
 /**
- * Calls server proxy endpoint (/fetch or /api/fetch) to fetch upstream feed or article content
- * with SSRF protection and CORS bypass.
+ * Calls server proxy endpoint (/fetch) to fetch upstream feed or article content
+ * with SSRF protection, CORS bypass, and conditional HTTP caching support.
  */
-export async function fetchProxy(targetUrl: string): Promise<string> {
+export async function fetchProxy(
+  targetUrl: string,
+  options?: FetchProxyOptions
+): Promise<{ status: number; text: string; etag?: string; lastModified?: string }> {
   const endpoint = `${API_BASE_URL}/fetch?url=${encodeURIComponent(targetUrl)}`;
-  const response = await fetch(endpoint, {
-    headers: {
-      Accept: "*/*",
-    },
-  });
+  const headers: Record<string, string> = {
+    Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, text/html, */*",
+  };
+
+  if (options?.etag) {
+    headers["If-None-Match"] = options.etag;
+  }
+  if (options?.lastModified) {
+    headers["If-Modified-Since"] = options.lastModified;
+  }
+
+  const response = await fetch(endpoint, { headers });
+
+  if (response.status === 304) {
+    return {
+      status: 304,
+      text: "",
+      etag: response.headers.get("etag") || undefined,
+      lastModified: response.headers.get("last-modified") || undefined,
+    };
+  }
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
@@ -77,11 +102,17 @@ export async function fetchProxy(targetUrl: string): Promise<string> {
     );
   }
 
-  return response.text();
+  const text = await response.text();
+  return {
+    status: response.status,
+    text,
+    etag: response.headers.get("etag") || undefined,
+    lastModified: response.headers.get("last-modified") || undefined,
+  };
 }
 
 /**
- * Submits an array of URLs to /api/discovery/submit
+ * Submits an anonymous array of URLs to /api/discovery/submit
  */
 export async function submitDiscoveryUrls(urls: string[]): Promise<SubmitUrlsResult> {
   const response = await fetch(`${API_BASE_URL}/api/discovery/submit`, {
@@ -101,10 +132,16 @@ export async function submitDiscoveryUrls(urls: string[]): Promise<SubmitUrlsRes
 }
 
 /**
- * Fetches feed recommendations from /api/discovery/recommendations
+ * Fetches feed recommendations from /api/discovery/recommendations based on user's feeds
  */
-export async function getDiscoveryRecommendations(): Promise<RecommendationsResult> {
-  const response = await fetch(`${API_BASE_URL}/api/discovery/recommendations`, {
+export async function getDiscoveryRecommendations(userFeedUrls: string[] = []): Promise<RecommendationsResult> {
+  let endpoint = `${API_BASE_URL}/api/discovery/recommendations`;
+  if (userFeedUrls.length > 0) {
+    const query = encodeURIComponent(userFeedUrls.join(","));
+    endpoint += `?feeds=${query}`;
+  }
+
+  const response = await fetch(endpoint, {
     headers: { Accept: "application/json" },
   });
 
