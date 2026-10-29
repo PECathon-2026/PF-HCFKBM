@@ -6,8 +6,6 @@ import {
   CheckCircle2,
   Clock,
   ExternalLink,
-  BookOpen,
-  ArrowRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -27,12 +25,14 @@ export interface ArticleCardData {
 
 interface ArticleCardProps {
   article: ArticleCardData;
+  isSelected?: boolean;
   onToggleRead: (id: string) => void;
   onToggleBookmark: (id: string) => void;
 }
 
 export function ArticleCard({
   article,
+  isSelected,
   onToggleRead,
   onToggleBookmark,
 }: ArticleCardProps) {
@@ -41,13 +41,14 @@ export function ArticleCard({
   return (
     <article
       className={cn(
-        "group p-5 sm:p-6 rounded-xl border transition-all duration-200 card-linear flex flex-col justify-between gap-3.5 relative bg-card/90 backdrop-blur-xs",
+        "group p-5 sm:p-6 rounded-xl border transition-all duration-200 card-interactive flex flex-col justify-between gap-3 relative bg-card",
+        isSelected && "ring-2 ring-primary/40 border-primary/50",
         article.isRead
-          ? "opacity-65 hover:opacity-90 border-border/50"
-          : "border-border/80 hover:border-foreground/25"
+          ? "opacity-65 hover:opacity-90 border-border/40"
+          : "border-border/60 hover:border-border"
       )}
     >
-      {/* Top Meta Header */}
+      {/* Top Meta Header: Quiet, editorial, zero noise */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <div className="flex items-center gap-2 flex-wrap">
           {!article.isRead ? (
@@ -62,14 +63,14 @@ export function ArticleCard({
             />
           )}
 
-          <span className="font-medium text-foreground px-2 py-0.5 rounded-md bg-secondary/80 text-[11px] tracking-tight border border-border/40">
+          <span className="font-medium text-foreground tracking-tight text-[12px]">
             {article.feedTitle}
           </span>
 
           {article.feedCategory && (
             <>
-              <span className="text-border/80">•</span>
-              <span className="text-muted-foreground/80 text-[11px] font-normal">
+              <span className="text-border/80">·</span>
+              <span className="text-muted-foreground text-[11px] font-normal">
                 {article.feedCategory}
               </span>
             </>
@@ -77,62 +78,53 @@ export function ArticleCard({
 
           {article.author && (
             <>
-              <span className="text-border/80">•</span>
-              <span className="text-muted-foreground/90 font-medium text-[11px] truncate max-w-[150px]">
+              <span className="text-border/80">·</span>
+              <span className="text-muted-foreground/90 text-[11px] truncate max-w-[150px]">
                 {article.author}
               </span>
             </>
           )}
         </div>
 
-        <div className="flex items-center gap-2 text-[11px] font-mono text-muted-foreground/80">
-          <Clock className="h-3 w-3 shrink-0" />
-          <span>{readTime} min read</span>
-          <span className="text-border/80">•</span>
+        <div className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground/75">
+          <Clock className="h-3 w-3 shrink-0 opacity-70" />
+          <span>{readTime}m read</span>
+          <span className="text-border/80">·</span>
           <span>{article.published}</span>
         </div>
       </div>
 
-      {/* Title & Excerpt */}
+      {/* Title & Excerpt - True Editorial Serif Typography */}
       <div className="flex flex-col gap-2 my-0.5">
         <Link
           href={`/read/${article.id}`}
           className={cn(
-            "text-lg sm:text-xl font-medium tracking-tight text-foreground group-hover:text-primary transition-colors leading-snug",
-            !article.isRead && "font-semibold"
+            "font-serif text-xl sm:text-[22px] tracking-tight text-foreground hover:text-primary transition-colors leading-snug",
+            !article.isRead ? "font-semibold" : "font-normal text-foreground/80"
           )}
         >
           {article.title}
         </Link>
         {article.summary && (
-          <p className="text-xs sm:text-sm text-muted-foreground/90 line-clamp-2 leading-relaxed font-normal">
+          <p className="text-xs sm:text-[13px] text-muted-foreground line-clamp-2 leading-relaxed font-normal">
             {article.summary}
           </p>
         )}
       </div>
 
-      {/* Footer Actions */}
-      <div className="flex items-center justify-between pt-3 border-t border-border/40 mt-0.5">
-        <div className="flex items-center gap-2.5">
-          <Link
-            href={`/read/${article.id}`}
-            className="group/btn text-xs font-medium text-foreground/85 hover:text-foreground inline-flex items-center gap-1.5 py-1.5 px-3 rounded-lg bg-muted/50 hover:bg-muted btn-press transition-colors border border-border/40"
-          >
-            <BookOpen className="h-3.5 w-3.5 text-muted-foreground group-hover/btn:text-foreground transition-colors" />
-            <span>Read Article</span>
-            <ArrowRight className="h-3 w-3 text-muted-foreground/60 transition-transform group-hover/btn:translate-x-0.5" />
-          </Link>
-
+      {/* Footer Actions: Clean, non-redundant controls */}
+      <div className="flex items-center justify-between pt-2.5 border-t border-border/40 mt-0.5">
+        <div className="flex items-center gap-2">
           {article.originalUrl && (
             <a
               href={article.originalUrl}
               target="_blank"
               rel="noreferrer"
-              className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 py-1 px-2 rounded-md hover:bg-muted/40 transition-colors"
+              className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1 py-1 px-1.5 rounded hover:bg-muted/40 transition-colors"
               title="Open publication website"
             >
               <ExternalLink className="h-3 w-3" />
-              <span className="hidden sm:inline">Source</span>
+              <span>Source</span>
             </a>
           )}
         </div>
@@ -142,10 +134,10 @@ export function ArticleCard({
           <button
             onClick={() => onToggleRead(article.id)}
             type="button"
-            title={article.isRead ? "Mark as unread" : "Mark as read"}
+            title={article.isRead ? "Mark as unread (M)" : "Mark as read (M)"}
             className={cn(
-              "p-2 rounded-lg hover:bg-accent/80 text-muted-foreground hover:text-foreground btn-press transition-colors",
-              article.isRead && "badge-emerald font-medium"
+              "p-1.5 rounded-lg hover:bg-accent/80 text-muted-foreground hover:text-foreground btn-press transition-colors",
+              article.isRead && "text-emerald-500 font-medium"
             )}
             aria-label={article.isRead ? "Mark as unread" : "Mark as read"}
           >
@@ -155,14 +147,14 @@ export function ArticleCard({
           <button
             onClick={() => onToggleBookmark(article.id)}
             type="button"
-            title={article.isBookmarked ? "Remove bookmark" : "Bookmark article"}
+            title={article.isBookmarked ? "Remove bookmark (S)" : "Bookmark article (S)"}
             className={cn(
-              "p-2 rounded-lg hover:bg-accent/80 text-muted-foreground hover:text-foreground btn-press transition-colors",
-              article.isBookmarked && "badge-amber font-medium"
+              "p-1.5 rounded-lg hover:bg-accent/80 text-muted-foreground hover:text-foreground btn-press transition-colors",
+              article.isBookmarked && "text-amber-500 font-medium"
             )}
             aria-label={article.isBookmarked ? "Remove bookmark" : "Bookmark article"}
           >
-            <Bookmark className={cn("h-4 w-4", article.isBookmarked && "fill-current")} />
+            <Bookmark className={cn("h-4 w-4", article.isBookmarked && "fill-current text-amber-500")} />
           </button>
         </div>
       </div>

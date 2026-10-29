@@ -15,8 +15,12 @@ import {
   X,
   ArrowRight,
   List,
+  Sparkles,
+  Loader2,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { extractArticle } from "@/lib/parser";
 import {
   ReadingControls,
   type ReaderFontSize,
@@ -55,7 +59,7 @@ interface ArticleDetail {
 
 const SAMPLE_ARTICLES: ArticleDetail[] = [
   {
-    id: "demo-1",
+    id: "art-1",
     feedTitle: "Changelog Weekly",
     feedCategory: "Systems & Architecture",
     title: "Rust in Linux: What 2 Years of Production Kernel Drivers Taught Us",
@@ -76,7 +80,7 @@ const SAMPLE_ARTICLES: ArticleDetail[] = [
         In low-level kernel C development, the vast majority of severe security advisories trace back to subtle lifecycle hazards: Use-After-Free (UAF), double-frees in obscure error unwinding branches, and race conditions resulting from missed mutex unlock sequences.
       </p>
       <p>
-        By implementing Rust's strict Resource Acquisition Is Initialization (RAII) pattern across kernel subsystem lock wrappers, our team eliminated lock-drop hazards entirely. Once a <code>Guard<'a, Mutex></code> goes out of scope—whether through nominal completion or early branch returns—the lock handle drops with zero runtime latency.
+        By implementing Rust's strict Resource Acquisition Is Initialization (RAII) pattern across kernel subsystem lock wrappers, our team eliminated lock-drop hazards entirely. Once a <code>Guard&lt;'a, Mutex&gt;</code> goes out of scope—whether through nominal completion or early branch returns—the lock handle drops with zero runtime latency.
       </p>
 
       <blockquote>
@@ -120,6 +124,13 @@ const SAMPLE_ARTICLES: ArticleDetail[] = [
       <p>
         Traditional serverless cold starts introduce noticeable latency penalties. WASM micro-sandboxes instantiate in sub-millisecond windows with strict memory caps.
       </p>
+      <p>
+        By moving path rewrites, header validations, and tenant routing rules into ahead-of-time compiled WASM modules, edge nodes resolve incoming client requests without waking centralized origin clusters.
+      </p>
+      <h2>Memory Sandboxing at Cloudflare &amp; Fastly Edges</h2>
+      <p>
+        Each edge request executes inside an isolated linear memory buffer. Even if a third-party plugin encounters a fatal trap, neighboring requests in the same process remain uncompromised.
+      </p>
     `,
   },
   {
@@ -142,6 +153,101 @@ const SAMPLE_ARTICLES: ArticleDetail[] = [
       <p>
         SQLite's VFS (Virtual File System) maps directly into browser-side IndexedDB persistence, enabling complete offline queries without exposing server assets.
       </p>
+      <p>
+        When an AI agent writes an exploratory SQL aggregation over personal feeds, executing that query in an in-memory WASM table ensures prompt injections can never exfiltrate tokens or reach private API backends.
+      </p>
+      <blockquote>
+        "The best security boundary for untrusted code execution is the user's own device with zero network privileges."
+      </blockquote>
+    `,
+  },
+  {
+    id: "art-4",
+    feedTitle: "Hacker News",
+    feedCategory: "Tech & Society",
+    title: "Show HN: OnlyDevs – Offline-First RSS Reader with Turso Edge Synchronization",
+    summary:
+      "Scaffolded with Dexie.js in the browser and edge proxy SSRF defense to reliably digest thousands of tech feeds without server bloat.",
+    author: "samarrv",
+    publishedDate: "October 25, 2026",
+    readingTimeMinutes: 3,
+    originalUrl: "https://news.ycombinator.com",
+    isSummaryFallback: false,
+    content: `
+      <p class="lead">
+        OnlyDevs was born from a simple frustration: modern feed readers have become bloated social networks that track your clicks, sell your reading habits, and paywall basic offline features.
+      </p>
+      <h2>Zero Tracking by Architectural Invariant</h2>
+      <p>
+        By delegating all feed parsing, article sanitization, and reading progress tracking to browser-side IndexedDB (via Dexie.js), the server operates purely as a stateless, non-logging CORS stream proxy.
+      </p>
+      <h2>Anonymous Co-Subscription Graph Discovery</h2>
+      <p>
+        Instead of collaborative filtering based on user profiling, discovery recommendations leverage mathematical co-occurrence batches submitted with rotating, salted IP hashes. Readers discover handcrafted indie developer blogs without trading their privacy.
+      </p>
+    `,
+  },
+  {
+    id: "art-5",
+    feedTitle: "Overreacted",
+    feedCategory: "Frontend",
+    title: "A Thorough Farewell to Layout Thrashing and Manual Cache Busting",
+    summary:
+      "Understanding compiler-optimized memoization and how React 19 transforms fine-grained component re-renders into predictable micro-tasks.",
+    author: "Dan Abramov",
+    publishedDate: "October 24, 2026",
+    readingTimeMinutes: 5,
+    originalUrl: "https://overreacted.io",
+    isSummaryFallback: false,
+    content: `
+      <p class="lead">
+        For years, optimizing React applications felt like walking a tightrope between layout thrashing and premature memoization. We peppered our components with <code>useMemo</code>, <code>useCallback</code>, and manual dependency arrays, hoping the runtime wouldn't drop frames during burst renders.
+      </p>
+
+      <h2>The False Promise of Manual Memoization</h2>
+      <p>
+        Every React developer knows the ritual: a table slows down, you pull up the React DevTools Profiler, spot unnecessary re-renders, and wrap three handlers in <code>useCallback</code>. Two weeks later, another teammate edits a closure, forgets an argument in the dependency array, and either causes a stale closure bug or breaks memoization entirely.
+      </p>
+      <p>
+        Manual memoization was always a compiler problem masquerading as a developer responsibility. Human developers shouldn't be human linter-compilers verifying referential equality.
+      </p>
+
+      <blockquote>
+        "Premature memoization doesn't just clutter your codebase with boilerplate; it actively introduces subtle concurrency and lifecycle bugs that are notoriously difficult to reproduce in CI."
+      </blockquote>
+
+      <h2>How the React Compiler Changes the Game</h2>
+      <p>
+        Instead of asking developers to manually memorize values, the compiler performs static semantic analysis across your component tree. It identifies which values actually depend on reactive state and automatically generates fine-grained memoization boundaries at the AST level.
+      </p>
+      <p>
+        Here is what a typical component looks like before and after compilation:
+      </p>
+
+      <pre><code>// What you write today:
+function FeedStream({ feeds, filter }) {
+  const visibleFeeds = feeds.filter(f =&gt; f.category === filter);
+  return &lt;FeedList items={visibleFeeds} /&gt;;
+}
+
+// What the compiler outputs under the hood:
+function FeedStream({ feeds, filter }) {
+  const $ = useMemoCache(2);
+  let visibleFeeds;
+  if ($[0] !== feeds || $[1] !== filter) {
+    visibleFeeds = feeds.filter(f =&gt; f.category === filter);
+    $[0] = feeds;
+    $[1] = filter;
+  } else {
+    visibleFeeds = $[0];
+  }
+  return &lt;FeedList items={visibleFeeds} /&gt;;
+}</code></pre>
+
+      <h2>Eliminating Layout Thrashing in Feed Readers</h2>
+      <p>
+        When building high-density feed readers, DOM layout thrashing—interleaving reads of <code>offsetHeight</code> or <code>scrollTop</code> with writes to <code>style.transform</code>—triggers forced synchronous reflows. By offloading layout calculations into CSS transforms and leveraging React 19's asynchronous transitions, rendering 500+ timeline entries remains locked at a consistent 60 FPS.
+      </p>
     `,
   },
 ];
@@ -151,7 +257,7 @@ export default function ReaderPage({ params }: ReaderProps) {
   const [fontSize, setFontSize] = useState<ReaderFontSize>("base");
   const [numericFontSize, setNumericFontSize] = useState<number>(18);
   const [lineHeight, setLineHeight] = useState<number>(1.85);
-  const [columnWidth, setColumnWidth] = useState<ReaderColumnWidth>("default");
+  const [columnWidth, setColumnWidth] = useState<ReaderColumnWidth>("wide");
   const [fontFamily, setFontFamily] = useState<ReaderFontFamily>("serif");
   const [theme, setTheme] = useState<ReaderTheme>("dark");
   const [isBookmarked, setIsBookmarked] = useState(false);
@@ -162,6 +268,7 @@ export default function ReaderPage({ params }: ReaderProps) {
   const [savedReadingSpot, setSavedReadingSpot] = useState<ReadingSpotData | null>(null);
   const [showResumeBanner, setShowResumeBanner] = useState(false);
   const [markerNotice, setMarkerNotice] = useState<string | null>(null);
+  const [isExtracting, setIsExtracting] = useState(false);
 
   // Initialize theme from HTML class or localStorage
   useEffect(() => {
@@ -183,6 +290,61 @@ export default function ReaderPage({ params }: ReaderProps) {
     }
   }, [params.id]);
 
+  // Full article extractor using @mozilla/readability via CORS proxy
+  const handleExtractFullArticle = async (url?: string) => {
+    const targetUrl = url || article.originalUrl;
+    if (!targetUrl || !targetUrl.startsWith("http") || isExtracting) return;
+
+    setIsExtracting(true);
+    setMarkerNotice("Extracting full article via Readability...");
+
+    try {
+      const endpoint = `/fetch?url=${encodeURIComponent(targetUrl)}`;
+      const res = await fetch(endpoint);
+      if (res.ok) {
+        const rawHtml = await res.text();
+        const extracted = await extractArticle(
+          rawHtml,
+          {
+            title: article.title,
+            summary: article.summary,
+            content: article.content,
+          },
+          targetUrl
+        );
+
+        if (extracted.content && extracted.content.length > 150) {
+          setArticle((prev) => ({
+            ...prev,
+            content: extracted.content,
+            isSummaryFallback: false,
+            readingTimeMinutes: extracted.readingTimeMinutes || prev.readingTimeMinutes,
+          }));
+
+          // Persist full article in Dexie IndexedDB
+          await db.articles
+            .update(params.id, {
+              content: extracted.content,
+              readingTimeMinutes: extracted.readingTimeMinutes,
+            })
+            .catch(() => {});
+
+          setMarkerNotice("Full article extracted with Readability");
+          setTimeout(() => setMarkerNotice(null), 3000);
+        } else {
+          setMarkerNotice("Readability found no article body, using feed summary");
+          setTimeout(() => setMarkerNotice(null), 3500);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to extract full article:", err);
+      setMarkerNotice("Extraction failed; showing available summary");
+      setTimeout(() => setMarkerNotice(null), 3500);
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
   // Sync article list & current article from Dexie or fallback
   useEffect(() => {
     let mounted = true;
@@ -192,24 +354,47 @@ export default function ReaderPage({ params }: ReaderProps) {
       .get(params.id)
       .then((record) => {
         if (mounted && record) {
+          // Check if sample fixture has full rich text
+          const sampleMatch = SAMPLE_ARTICLES.find(
+            (a) => a.id === params.id || a.title === record.title
+          );
+
+          const hasRealContent =
+            record.content &&
+            record.content.length > 250 &&
+            record.content !== record.summary;
+
+          const chosenContent = hasRealContent
+            ? record.content
+            : sampleMatch?.content || record.content || record.summary;
+
+          const isFallback =
+            !chosenContent ||
+            (chosenContent === record.summary && chosenContent.length < 250);
+
           setArticle({
             id: record.id,
             feedTitle: record.subscriptionId || "Feed Source",
             title: record.title,
             summary: record.summary,
-            content: record.content,
-            author: record.author || "Anonymous Author",
+            content: chosenContent,
+            author: record.author || sampleMatch?.author || "Anonymous Author",
             publishedDate: new Date(record.publishedAt).toLocaleDateString(),
-            readingTimeMinutes: record.readingTimeMinutes || 4,
-            originalUrl: record.url,
-            isSummaryFallback: !record.content,
+            readingTimeMinutes: record.readingTimeMinutes || sampleMatch?.readingTimeMinutes || 4,
+            originalUrl: record.url || sampleMatch?.originalUrl || "",
+            isSummaryFallback: isFallback,
           });
           setIsBookmarked(record.isBookmarked);
           setIsRead(record.isRead);
+
+          // If content is only a short summary and URL is available, auto-extract
+          if (isFallback && record.url && record.url.startsWith("http")) {
+            handleExtractFullArticle(record.url);
+          }
         } else if (mounted) {
           const match =
             SAMPLE_ARTICLES.find((a) => a.id === params.id) ||
-            (params.id === "art-1" ? SAMPLE_ARTICLES[0] : undefined);
+            (params.id === "art-1" || params.id === "demo-1" ? SAMPLE_ARTICLES[0] : undefined);
           if (match) setArticle(match);
         }
       })
@@ -219,18 +404,23 @@ export default function ReaderPage({ params }: ReaderProps) {
     getArticles()
       .then((stored) => {
         if (mounted && stored && stored.length > 0) {
-          const mapped: ArticleDetail[] = stored.map((r) => ({
-            id: r.id,
-            feedTitle: r.subscriptionId || "Feed Source",
-            title: r.title,
-            summary: r.summary,
-            content: r.content,
-            author: r.author,
-            publishedDate: new Date(r.publishedAt).toLocaleDateString(),
-            readingTimeMinutes: r.readingTimeMinutes || 4,
-            originalUrl: r.url,
-            isSummaryFallback: !r.content,
-          }));
+          const mapped: ArticleDetail[] = stored.map((r) => {
+            const sample = SAMPLE_ARTICLES.find(
+              (a) => a.id === r.id || a.title === r.title
+            );
+            return {
+              id: r.id,
+              feedTitle: r.subscriptionId || "Feed Source",
+              title: r.title,
+              summary: r.summary,
+              content: r.content || sample?.content,
+              author: r.author,
+              publishedDate: new Date(r.publishedAt).toLocaleDateString(),
+              readingTimeMinutes: r.readingTimeMinutes || 4,
+              originalUrl: r.url,
+              isSummaryFallback: !r.content && !sample?.content,
+            };
+          });
           setAvailableArticles(mapped);
         }
       })
@@ -390,9 +580,9 @@ export default function ReaderPage({ params }: ReaderProps) {
   };
 
   const columnWidthClasses: Record<ReaderColumnWidth, string> = {
-    compact: "max-w-3xl lg:max-w-[780px]",
-    default: "max-w-4xl lg:max-w-[1020px]",
-    wide: "max-w-6xl xl:max-w-[1300px]",
+    compact: "max-w-[620px]",
+    default: "max-w-[780px]",
+    wide: "max-w-[1100px]",
   };
 
   return (
@@ -591,7 +781,10 @@ export default function ReaderPage({ params }: ReaderProps) {
             </span>
           </div>
 
-          <h1 className="text-3xl sm:text-4xl md:text-5xl font-medium tracking-tight leading-[1.16]">
+          <h1
+            className="font-medium tracking-tight leading-[1.18] transition-all duration-150"
+            style={{ fontSize: `${Math.round(numericFontSize * 2.1)}px` }}
+          >
             {article.title}
           </h1>
 
@@ -620,21 +813,39 @@ export default function ReaderPage({ params }: ReaderProps) {
         {article.isSummaryFallback && (
           <div
             className={cn(
-              "p-4 rounded-xl border text-xs flex items-start gap-3",
+              "p-4 rounded-xl border text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3",
               theme === "sepia"
                 ? "bg-[#f5e6c8]/80 border-[#ebd8b5] text-[#433422]"
                 : "bg-muted/60 border-border/70 text-muted-foreground"
             )}
           >
-            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
-            <div className="flex flex-col gap-0.5">
-              <span className="font-semibold text-foreground">
-                Showing Feed Summary
-              </span>
-              <span>
-                Full text could not be extracted from the source host. Showing the author's summary.
-              </span>
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
+              <div className="flex flex-col gap-0.5">
+                <span className="font-semibold text-foreground">
+                  Showing Feed Summary
+                </span>
+                <span>
+                  The RSS feed provided an excerpt. Use Readability to extract the full article and images.
+                </span>
+              </div>
             </div>
+
+            {article.originalUrl && (
+              <button
+                type="button"
+                onClick={() => handleExtractFullArticle(article.originalUrl)}
+                disabled={isExtracting}
+                className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-medium text-xs btn-press inline-flex items-center gap-1.5 shrink-0"
+              >
+                {isExtracting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                <span>{isExtracting ? "Extracting..." : "Extract Full Article"}</span>
+              </button>
+            )}
           </div>
         )}
 

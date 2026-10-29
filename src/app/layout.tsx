@@ -57,8 +57,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="min-h-screen bg-background text-foreground bg-ambient-pattern flex flex-col font-sans antialiased selection:bg-foreground/10 transition-colors duration-300 relative overflow-x-hidden">
-        <div className="ambient-glow" aria-hidden="true" />
+      <body className="min-h-screen bg-background text-foreground flex flex-col font-sans antialiased selection:bg-primary/10 selection:text-primary transition-colors duration-200 relative overflow-x-hidden">
         <Sidebar />
         <main className="flex-1 w-full flex flex-col min-w-0 relative z-10">
           {children}
