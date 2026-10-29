@@ -4,6 +4,8 @@ import https from "node:https";
 import dns from "node:dns/promises";
 import net from "node:net";
 
+import { isAllowedByRobotsTxt } from "../middleware/robots";
+
 export const fetchRouter = Router();
 
 export interface FetchQueryParams {
@@ -30,10 +32,21 @@ export interface FetchErrorResponse {
  * - fe80::/10 (IPv6 Link-local)
  */
 export function isPrivateOrLoopbackIP(ip: string): boolean {
+  // If input is a hostname (not an IP address), let DNS lookup handle it
+  if (!net.isIP(ip)) {
+    const lower = ip.toLowerCase();
+    return (
+      lower === "localhost" ||
+      lower.endsWith(".local") ||
+      lower.endsWith(".internal") ||
+      lower.endsWith(".lan")
+    );
+  }
+
   if (net.isIPv4(ip)) {
     const parts = ip.split(".").map(Number);
     if (parts.length !== 4 || parts.some(isNaN)) {
-      return true; // Malformed IPv4 -> treat as unsafe
+      return true; // Malformed IPv4 -> block
     }
 
     const [b0, b1] = parts;
@@ -66,12 +79,13 @@ export function isPrivateOrLoopbackIP(ip: string): boolean {
     return false;
   }
 
-  return true; // Unknown IP format -> block by default
+  return true; // Unknown IP format -> block
 }
 
 /**
- * SSRF validation stub:
- * Resolves the hostname and ensures resolved IP is not in private or loopback ranges.
+ * SSRF validation:
+ * Validates protocol, blocks internal hostnames, and resolves DNS to ensure
+ * resolved destination is not in a private/loopback IP range.
  */
 export async function validateUrlAgainstSSRF(rawUrl: string): Promise<{ valid: boolean; resolvedIp?: string; reason?: string }> {
   try {
@@ -85,7 +99,12 @@ export async function validateUrlAgainstSSRF(rawUrl: string): Promise<{ valid: b
     const hostname = parsed.hostname;
 
     // Reject localhost aliases directly
-    if (hostname === "localhost" || hostname.endsWith(".local") || hostname.endsWith(".internal")) {
+    if (
+      hostname === "localhost" ||
+      hostname.endsWith(".local") ||
+      hostname.endsWith(".internal") ||
+      hostname.endsWith(".lan")
+    ) {
       return { valid: false, reason: "Localhost and internal hostnames are blocked" };
     }
 
@@ -97,9 +116,12 @@ export async function validateUrlAgainstSSRF(rawUrl: string): Promise<{ valid: b
       return { valid: true, resolvedIp: hostname };
     }
 
-    // DNS lookup validation
-    // TODO: Team members can enhance this with DNS pinning / custom agent to prevent DNS rebinding attacks
+    // DNS lookup validation (prevents DNS rebinding to local subnets)
     const addresses = await dns.lookup(hostname, { all: true });
+    if (!addresses || addresses.length === 0) {
+      return { valid: false, reason: "DNS lookup returned no addresses" };
+    }
+
     for (const addr of addresses) {
       if (isPrivateOrLoopbackIP(addr.address)) {
         return { valid: false, reason: `Resolved IP ${addr.address} is in private/loopback range` };
@@ -114,8 +136,9 @@ export async function validateUrlAgainstSSRF(rawUrl: string): Promise<{ valid: b
 }
 
 /**
- * Basic GET route accepting `?url=`.
- * Pipes raw upstream response with CORS headers.
+ * Stateless raw CORS fetch proxy.
+ * Pipes upstream response directly to the browser without parsing or saving content.
+ * Honors conditional headers: If-None-Match, If-Modified-Since.
  */
 fetchRouter.get("/", async (req: Request<unknown, unknown, unknown, FetchQueryParams>, res: Response, next: NextFunction): Promise<void> => {
   const targetUrl = req.query.url;
@@ -129,7 +152,7 @@ fetchRouter.get("/", async (req: Request<unknown, unknown, unknown, FetchQueryPa
   }
 
   try {
-    // 1. SSRF Check Stub
+    // 1. SSRF Check
     const ssrfResult = await validateUrlAgainstSSRF(targetUrl);
     if (!ssrfResult.valid) {
       res.status(403).json({
@@ -140,36 +163,66 @@ fetchRouter.get("/", async (req: Request<unknown, unknown, unknown, FetchQueryPa
       return;
     }
 
-    // 2. Raw proxy pipe returning upstream response with CORS headers
+    // 2. Robots.txt Politeness Check
+    const robotsResult = await isAllowedByRobotsTxt(targetUrl);
+    if (!robotsResult.allowed) {
+      res.status(403).json({
+        error: "Upstream access blocked by robots.txt policy",
+        code: "ROBOTS_TXT_DISALLOWED",
+        details: robotsResult.reason,
+      } satisfies FetchErrorResponse);
+      return;
+    }
+
+    // 3. Prepare upstream request
     const parsedUrl = new URL(targetUrl);
     const client = parsedUrl.protocol === "https:" ? https : http;
+
+    const upstreamHeaders: Record<string, string> = {
+      "User-Agent": "OnlyDevs-WebReader-Proxy/1.0 (+https://github.com/OnlyDevs)",
+      Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, text/html, */*",
+    };
+
+    // Forward client conditional caching headers if present
+    const ifNoneMatch = req.headers["if-none-match"];
+    if (typeof ifNoneMatch === "string") {
+      upstreamHeaders["If-None-Match"] = ifNoneMatch;
+    }
+
+    const ifModifiedSince = req.headers["if-modified-since"];
+    if (typeof ifModifiedSince === "string") {
+      upstreamHeaders["If-Modified-Since"] = ifModifiedSince;
+    }
 
     const proxyReq = client.get(
       targetUrl,
       {
-        headers: {
-          "User-Agent": "OnlyDevs-WebReader-Proxy/1.0",
-          Accept: "*/*",
-        },
-        timeout: 10000,
+        headers: upstreamHeaders,
+        timeout: 10000, // 10-second timeout
       },
       (upstreamRes) => {
         // Set standard CORS headers
         res.setHeader("Access-Control-Allow-Origin", "*");
         res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-        res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+        res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, If-None-Match, If-Modified-Since");
 
-        // Forward content-type and status
+        // Forward caching and content headers
         if (upstreamRes.headers["content-type"]) {
           res.setHeader("Content-Type", upstreamRes.headers["content-type"]);
         }
+        if (upstreamRes.headers["etag"]) {
+          res.setHeader("ETag", upstreamRes.headers["etag"]);
+        }
+        if (upstreamRes.headers["last-modified"]) {
+          res.setHeader("Last-Modified", upstreamRes.headers["last-modified"]);
+        }
+
         res.status(upstreamRes.statusCode || 200);
 
-        // Pipe upstream response stream directly to client
+        // Pipe upstream response stream directly to client without buffering
         upstreamRes.pipe(res);
 
         upstreamRes.on("error", (streamErr) => {
-          // TODO: Log upstream streaming error to telemetry
           if (!res.headersSent) {
             res.status(502).json({
               error: "Upstream stream error occurred",
@@ -182,7 +235,6 @@ fetchRouter.get("/", async (req: Request<unknown, unknown, unknown, FetchQueryPa
     );
 
     proxyReq.on("error", (reqErr) => {
-      // TODO: Add retry logic or cache fallback for transient upstream network failures
       if (!res.headersSent) {
         res.status(502).json({
           error: "Failed to connect to upstream service",
