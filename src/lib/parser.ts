@@ -22,7 +22,7 @@ export interface ParsedItem {
   summary?: string;
   content?: string;
   // Aliases for compatibility
-  link?: string;
+  link: string;
   pubDate?: string;
 }
 

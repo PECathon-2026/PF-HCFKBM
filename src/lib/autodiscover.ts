@@ -312,7 +312,10 @@ function isFeedPayload(content: string): boolean {
  */
 export async function autodiscover(
   siteUrl: string,
-  fetcher: (url: string) => Promise<string> = fetchProxy
+  fetcher: (url: string) => Promise<string> = async (url) => {
+    const res = await fetchProxy(url);
+    return res.text;
+  }
 ): Promise<AutodiscoverResult> {
   const normalizedUrl = normalizeUrl(siteUrl);
   let html = "";
