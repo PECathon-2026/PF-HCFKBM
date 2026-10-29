@@ -39,104 +39,113 @@ export function ArticleCard({
   const readTime = article.readingTimeMinutes ?? 4;
 
   return (
-    <article
+    <div
       className={cn(
-        "group p-5 sm:p-6 rounded-xl border transition-all duration-200 card-interactive flex flex-col justify-between gap-3 relative bg-card",
+        "group relative rounded-2xl border transition-all duration-200 card-interactive bg-card overflow-hidden",
         isSelected && "ring-2 ring-primary/40 border-primary/50",
         article.isRead
-          ? "opacity-65 hover:opacity-90 border-border/40"
+          ? "opacity-60 hover:opacity-90 border-border/40"
           : "border-border/60 hover:border-border"
       )}
     >
-      {/* Top Meta Header: Quiet, editorial, zero noise */}
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <div className="flex items-center gap-2 flex-wrap">
-          {!article.isRead ? (
-            <span
-              className="status-dot-primary shrink-0"
-              title="Unread story"
-            />
-          ) : (
-            <span
-              className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30 shrink-0"
-              title="Read story"
-            />
-          )}
+      {/* Primary Clickable Reading Container */}
+      <Link
+        href={`/read/${article.id}`}
+        className="flex flex-col gap-4 p-7 sm:p-9 md:p-11 block select-none cursor-pointer"
+      >
+        {/* Top Metadata: Quiet, spacious, and dignified */}
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {!article.isRead ? (
+              <span
+                className="status-dot-primary shrink-0"
+                title="Unread story"
+              />
+            ) : (
+              <span
+                className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30 shrink-0"
+                title="Read story"
+              />
+            )}
 
-          <span className="font-medium text-foreground tracking-tight text-[12px]">
-            {article.feedTitle}
-          </span>
+            <span className="font-semibold text-foreground tracking-tight text-xs sm:text-[13px]">
+              {article.feedTitle}
+            </span>
 
-          {article.feedCategory && (
-            <>
-              <span className="text-border/80">·</span>
-              <span className="text-muted-foreground text-[11px] font-normal">
-                {article.feedCategory}
-              </span>
-            </>
-          )}
+            {article.feedCategory && (
+              <>
+                <span className="text-border/70">/</span>
+                <span className="text-muted-foreground text-xs font-normal">
+                  {article.feedCategory}
+                </span>
+              </>
+            )}
 
-          {article.author && (
-            <>
-              <span className="text-border/80">·</span>
-              <span className="text-muted-foreground/90 text-[11px] truncate max-w-[150px]">
-                {article.author}
-              </span>
-            </>
-          )}
+            {article.author && (
+              <>
+                <span className="text-border/70">·</span>
+                <span className="text-muted-foreground/90 text-xs truncate max-w-[180px]">
+                  {article.author}
+                </span>
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground/75">
+            <Clock className="h-3 w-3 shrink-0 opacity-70" />
+            <span>{readTime}m read</span>
+            <span className="text-border/70">·</span>
+            <span>{article.published}</span>
+          </div>
         </div>
 
-        <div className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground/75">
-          <Clock className="h-3 w-3 shrink-0 opacity-70" />
-          <span>{readTime}m read</span>
-          <span className="text-border/80">·</span>
-          <span>{article.published}</span>
-        </div>
-      </div>
-
-      {/* Title & Excerpt - True Editorial Serif Typography */}
-      <div className="flex flex-col gap-2 my-0.5">
-        <Link
-          href={`/read/${article.id}`}
+        {/* Large, Authoritative Headline */}
+        <h2
           className={cn(
-            "font-serif text-xl sm:text-[22px] tracking-tight text-foreground hover:text-primary transition-colors leading-snug",
-            !article.isRead ? "font-semibold" : "font-normal text-foreground/80"
+            "font-serif text-2xl sm:text-3xl md:text-[32px] font-medium tracking-tight text-foreground group-hover:text-primary transition-colors leading-[1.22] my-1",
+            !article.isRead ? "font-semibold text-foreground" : "text-foreground/80"
           )}
         >
           {article.title}
-        </Link>
+        </h2>
+
+        {/* Concise 1-2 line teaser that starts and cleanly cuts off */}
         {article.summary && (
-          <p className="text-xs sm:text-[13px] text-muted-foreground line-clamp-2 leading-relaxed font-normal">
+          <p className="font-serif text-sm sm:text-base text-muted-foreground/90 line-clamp-2 leading-relaxed font-normal">
             {article.summary}
           </p>
         )}
-      </div>
+      </Link>
 
-      {/* Footer Actions: Clean, non-redundant controls */}
-      <div className="flex items-center justify-between pt-2.5 border-t border-border/40 mt-0.5">
-        <div className="flex items-center gap-2">
+      {/* Floating Bottom Action Rail */}
+      <div className="flex items-center justify-between px-7 sm:px-9 md:px-11 py-3.5 border-t border-border/30 bg-muted/10 text-xs">
+        <div>
           {article.originalUrl && (
             <a
               href={article.originalUrl}
               target="_blank"
               rel="noreferrer"
-              className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1 py-1 px-1.5 rounded hover:bg-muted/40 transition-colors"
+              onClick={(e) => e.stopPropagation()}
+              className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 py-1 px-2 rounded-md hover:bg-muted/40 transition-colors"
               title="Open publication website"
             >
-              <ExternalLink className="h-3 w-3" />
-              <span>Source</span>
+              <ExternalLink className="h-3 w-3 opacity-70" />
+              <span>Original Source</span>
             </a>
           )}
         </div>
 
-        {/* Quick action buttons with tactile physics */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
           <button
-            onClick={() => onToggleRead(article.id)}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onToggleRead(article.id);
+            }}
             type="button"
             title={article.isRead ? "Mark as unread (M)" : "Mark as read (M)"}
             className={cn(
-              "p-1.5 rounded-lg hover:bg-accent/80 text-muted-foreground hover:text-foreground btn-press transition-colors",
+              "p-2 rounded-lg hover:bg-accent/80 text-muted-foreground hover:text-foreground btn-press transition-colors",
               article.isRead && "text-emerald-500 font-medium"
             )}
             aria-label={article.isRead ? "Mark as unread" : "Mark as read"}
@@ -145,11 +154,15 @@ export function ArticleCard({
           </button>
 
           <button
-            onClick={() => onToggleBookmark(article.id)}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onToggleBookmark(article.id);
+            }}
             type="button"
             title={article.isBookmarked ? "Remove bookmark (S)" : "Bookmark article (S)"}
             className={cn(
-              "p-1.5 rounded-lg hover:bg-accent/80 text-muted-foreground hover:text-foreground btn-press transition-colors",
+              "p-2 rounded-lg hover:bg-accent/80 text-muted-foreground hover:text-foreground btn-press transition-colors",
               article.isBookmarked && "text-amber-500 font-medium"
             )}
             aria-label={article.isBookmarked ? "Remove bookmark" : "Bookmark article"}
@@ -158,6 +171,6 @@ export function ArticleCard({
           </button>
         </div>
       </div>
-    </article>
+    </div>
   );
 }

@@ -25,39 +25,69 @@ interface NavItem {
   badgeType?: "count" | "new";
 }
 
-const NAV_ITEMS: NavItem[] = [
-  {
-    href: "/",
-    label: "Timeline",
-    icon: Layers,
-    badge: "12",
-    badgeType: "count",
-  },
-  {
-    href: "/subscriptions",
-    label: "Subscriptions",
-    icon: Rss,
-    badge: "8",
-    badgeType: "count",
-  },
-  {
-    href: "/discover",
-    label: "Discover",
-    icon: Compass,
-    badge: "New",
-    badgeType: "new",
-  },
-  {
-    href: "/read/demo-1",
-    label: "Reader",
-    icon: BookOpen,
-  },
-];
-
 export function Sidebar() {
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
+  const [unreadCount, setUnreadCount] = useState<number>(0);
+  const [subCount, setSubCount] = useState<number>(0);
+
+  // Dynamically load real badge counters from IndexedDB
+  useEffect(() => {
+    let mounted = true;
+
+    const loadCounts = async () => {
+      try {
+        const { db } = await import("@/lib/db");
+        const [unread, totalSubs] = await Promise.all([
+          db.articles.where("isRead").equals(0).count().catch(() => 0),
+          db.subscriptions.count().catch(() => 0),
+        ]);
+
+        if (mounted) {
+          setUnreadCount(unread);
+          setSubCount(totalSubs);
+        }
+      } catch {}
+    };
+
+    loadCounts();
+    const interval = setInterval(loadCounts, 2500);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [pathname]);
+
+  const navItems: NavItem[] = [
+    {
+      href: "/",
+      label: "Timeline",
+      icon: Layers,
+      badge: unreadCount > 0 ? String(unreadCount) : undefined,
+      badgeType: "count",
+    },
+    {
+      href: "/subscriptions",
+      label: "Subscriptions",
+      icon: Rss,
+      badge: subCount > 0 ? String(subCount) : undefined,
+      badgeType: "count",
+    },
+    {
+      href: "/discover",
+      label: "Discover",
+      icon: Compass,
+      badge: "New",
+      badgeType: "new",
+    },
+    {
+      href: "/read/demo-1",
+      label: "Reader",
+      icon: BookOpen,
+    },
+  ];
 
   // Monitor real-time online/offline network status
   useEffect(() => {
@@ -105,7 +135,7 @@ export function Sidebar() {
 
         {/* Center: Desktop Navigation Tabs with Glass Pill */}
         <nav className="hidden md:flex items-center gap-1 p-1 bg-muted/60 rounded-xl border border-border/60 shadow-xs">
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const isActive =
               item.href === "/"
                 ? pathname === "/"
@@ -203,7 +233,7 @@ export function Sidebar() {
       {/* Mobile Animated Dropdown */}
       {isMobileMenuOpen && (
         <div className="md:hidden border-t border-border/60 bg-card/95 backdrop-blur-md px-4 py-4 flex flex-col gap-2 animate-in slide-in-from-top-2 duration-150">
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const isActive =
               item.href === "/"
                 ? pathname === "/"

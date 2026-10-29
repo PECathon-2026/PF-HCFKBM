@@ -187,9 +187,12 @@ export async function refreshFeed(
     // Client-side feed parsing
     const parsedFeed = await parseFeed(rawXml);
 
-    const articles: Article[] = parsedFeed.items.map((item) => {
+    const articles: Article[] = parsedFeed.items.map((item, index) => {
       const pubDateParsed = item.pubDate ? Date.parse(item.pubDate) : NaN;
-      const publishedAt = !isNaN(pubDateParsed) ? pubDateParsed : Date.now();
+      // Stagger undated archival feeds backward by index so they don't flood out active feeds
+      const publishedAt = !isNaN(pubDateParsed)
+        ? pubDateParsed
+        : Date.now() - (index + 1) * (1000 * 60 * 60 * 24);
       const text = item.content || item.summary || "";
       const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
       const readingTimeMinutes = Math.max(1, Math.ceil(wordCount / 200));
