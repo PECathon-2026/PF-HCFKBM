@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import DOMPurify from "dompurify";
 import {
   ExternalLink,
   BookOpen,
@@ -21,6 +20,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { extractArticle } from "@/lib/parser";
+import { sanitizeHtml } from "@/lib/sanitizer";
 import {
   ReadingControls,
   type ReaderFontSize,
@@ -291,7 +291,10 @@ export default function ReaderPage({ params }: ReaderProps) {
   }, [params.id]);
 
   // Full article extractor using @mozilla/readability via CORS proxy
-  const handleExtractFullArticle = async (url?: string) => {
+  const handleExtractFullArticle = async (
+    url?: string,
+    fallbackMeta?: { title?: string; summary?: string; content?: string }
+  ) => {
     const targetUrl = url || article.originalUrl;
     if (!targetUrl || !targetUrl.startsWith("http") || isExtracting) return;
 
@@ -305,7 +308,7 @@ export default function ReaderPage({ params }: ReaderProps) {
         const rawHtml = await res.text();
         const extracted = await extractArticle(
           rawHtml,
-          {
+          fallbackMeta || {
             title: article.title,
             summary: article.summary,
             content: article.content,
@@ -313,7 +316,7 @@ export default function ReaderPage({ params }: ReaderProps) {
           targetUrl
         );
 
-        if (extracted.content && extracted.content.length > 150) {
+        if (extracted.content && extracted.content.length > 100) {
           setArticle((prev) => ({
             ...prev,
             content: extracted.content,
@@ -387,9 +390,13 @@ export default function ReaderPage({ params }: ReaderProps) {
           setIsBookmarked(record.isBookmarked);
           setIsRead(record.isRead);
 
-          // If content is only a short summary and URL is available, auto-extract
+          // If content is short or empty and URL is available, auto-extract
           if (isFallback && record.url && record.url.startsWith("http")) {
-            handleExtractFullArticle(record.url);
+            handleExtractFullArticle(record.url, {
+              title: record.title,
+              summary: record.summary,
+              content: record.content,
+            });
           }
         } else if (mounted) {
           const match =
@@ -530,37 +537,11 @@ export default function ReaderPage({ params }: ReaderProps) {
     window.dispatchEvent(new Event("themechange"));
   };
 
-  // Crucial: Sanitize HTML content with DOMPurify against XSS
+  // Crucial: Sanitize HTML content with zero-trust sanitizer (resolves relative image URLs)
   const sanitizedContent = useMemo(() => {
     if (!article.content) return "";
-    if (typeof window !== "undefined") {
-      return DOMPurify.sanitize(article.content, {
-        USE_PROFILES: { html: true },
-        ALLOWED_TAGS: [
-          "p",
-          "h1",
-          "h2",
-          "h3",
-          "h4",
-          "blockquote",
-          "ul",
-          "ol",
-          "li",
-          "code",
-          "pre",
-          "strong",
-          "em",
-          "a",
-          "span",
-          "div",
-          "img",
-          "hr",
-        ],
-        ALLOWED_ATTR: ["href", "src", "alt", "class", "target", "rel"],
-      });
-    }
-    return article.content;
-  }, [article.content]);
+    return sanitizeHtml(article.content, { baseUrl: article.originalUrl });
+  }, [article.content, article.originalUrl]);
 
   // Typography mappings
   const fontSizeClasses: Record<ReaderFontSize, string> = {

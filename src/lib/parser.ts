@@ -503,8 +503,10 @@ export async function extractArticle(
     };
   }
 
+  // Pre-process double <br> tags into <p> paragraphs for older table-based websites (e.g. Paul Graham)
+  const htmlToParse = (html || "").replace(/<br\s*\/?>\s*<br\s*\/?>/gi, "</p><p>");
   const parser = new DOMParser();
-  const doc = parser.parseFromString(html || "", "text/html");
+  const doc = parser.parseFromString(htmlToParse, "text/html");
 
   if (docUrl) {
     try {
@@ -545,7 +547,19 @@ export async function extractArticle(
     // Readability failed, move to fallback
   }
 
-  // Graceful Fallback: If readability failed or extracted < 100 characters
+  // Graceful Fallback: If readability failed or extracted < 100 characters, inspect body
+  if (!extractedContent || textContent.length < 100) {
+    const bodyClone = doc.body?.cloneNode(true) as HTMLElement | null;
+    if (bodyClone) {
+      bodyClone.querySelectorAll("script, style, nav, header, footer, noscript, iframe, map").forEach((el) => el.remove());
+      const bodyText = bodyClone.textContent?.trim() || "";
+      if (bodyText.length >= 150) {
+        extractedContent = bodyClone.innerHTML;
+        textContent = bodyText;
+      }
+    }
+  }
+
   if (!extractedContent || textContent.length < 100) {
     extractedContent = fallback?.content || fallback?.summary || "<p>No full content available.</p>";
     textContent = stripHtmlToText(extractedContent) || "";
