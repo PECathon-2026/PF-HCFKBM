@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { fetchRouter } from "./routes/fetch";
 import { discoveryRouter } from "./routes/discovery";
 import { runMigrations } from "./db/turso";
+import { seedTursoIfEmpty } from "./db/seed_turso";
 import { rateLimitMiddleware } from "./middleware/rateLimit";
 
 dotenv.config();
@@ -49,6 +50,9 @@ export async function startServer() {
     console.log("[Bootstrap] Initializing database tables...");
     const migrationResult = await runMigrations();
     console.log(`[Bootstrap] Database ready. Tables: ${migrationResult.appliedTables.join(", ")}`);
+
+    // Auto-seed discovery dataset on initial setup
+    await seedTursoIfEmpty();
 
     return app.listen(port, () => {
       console.log(`[Server] OnlyDevs lightweight server running on port ${port}`);
