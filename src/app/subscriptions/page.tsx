@@ -25,12 +25,13 @@ import {
   getSubscriptions,
   addSubscription,
   type Subscription,
+  type SubscriptionStatus,
 } from "@/lib/db";
 
-interface SubscriptionWithMeta extends Subscription {
+interface SubscriptionWithMeta extends Omit<Subscription, "status"> {
   articlesCount: number;
   lastSyncedText: string;
-  status: "active" | "syncing" | "stale";
+  status: SubscriptionStatus | "syncing";
 }
 
 const INITIAL_SUBSCRIPTIONS: SubscriptionWithMeta[] = [
@@ -43,6 +44,7 @@ const INITIAL_SUBSCRIPTIONS: SubscriptionWithMeta[] = [
     articlesCount: 42,
     lastSyncedText: "10 mins ago",
     status: "active",
+    errorCount: 0,
     createdAt: Date.now() - 1000 * 60 * 60 * 24 * 5,
   },
   {
@@ -54,6 +56,7 @@ const INITIAL_SUBSCRIPTIONS: SubscriptionWithMeta[] = [
     articlesCount: 156,
     lastSyncedText: "2 mins ago",
     status: "active",
+    errorCount: 0,
     createdAt: Date.now() - 1000 * 60 * 60 * 24 * 10,
   },
   {
@@ -65,6 +68,7 @@ const INITIAL_SUBSCRIPTIONS: SubscriptionWithMeta[] = [
     articlesCount: 18,
     lastSyncedText: "1 hour ago",
     status: "active",
+    errorCount: 0,
     createdAt: Date.now() - 1000 * 60 * 60 * 24 * 14,
   },
   {
@@ -76,6 +80,7 @@ const INITIAL_SUBSCRIPTIONS: SubscriptionWithMeta[] = [
     articlesCount: 89,
     lastSyncedText: "4 hours ago",
     status: "stale",
+    errorCount: 0,
     createdAt: Date.now() - 1000 * 60 * 60 * 24 * 20,
   },
 ];
@@ -143,6 +148,8 @@ export default function SubscriptionsPage() {
         siteUrl: `https://${hostname}`,
         title: hostname.charAt(0).toUpperCase() + hostname.slice(1),
         category: feedCategory,
+        status: "active",
+        errorCount: 0,
       };
 
       await addSubscription(newSub).catch(() => {});
@@ -266,6 +273,8 @@ export default function SubscriptionsPage() {
               url,
               siteUrl,
               category,
+              status: "active",
+              errorCount: 0,
             };
             await addSubscription(subRecord).catch(() => {});
 
