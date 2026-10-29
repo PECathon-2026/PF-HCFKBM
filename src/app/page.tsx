@@ -18,9 +18,12 @@ import {
   Rss,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { ArticleCard, type ArticleCardData } from "@/components/ArticleCard";
-import { getArticles, markArticleRead, toggleArticleBookmark } from "@/lib/db";
+import { getArticles, getSubscriptions, markArticleRead, toggleArticleBookmark } from "@/lib/db";
+import { syncAllFeeds } from "@/lib/sync";
+import { initializeSeedData } from "@/lib/seed";
 
 const INITIAL_ARTICLES: ArticleCardData[] = [
   {
@@ -106,21 +109,28 @@ const QUICK_SEARCH_SUGGESTIONS = [
 ];
 
 export default function TimelinePage() {
+  const router = useRouter();
   const [filter, setFilter] = useState<"all" | "unread" | "bookmarked">("all");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedFeed, setSelectedFeed] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [articles, setArticles] = useState<ArticleCardData[]>(INITIAL_ARTICLES);
+  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
+  const [displayCount, setDisplayCount] = useState<number>(15);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
-  // Global keyboard shortcut: `/` or `⌘K` / `Ctrl+K` to focus search
+  // Focus search shortcut (/ or Cmd+K)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const isInputFocused =
+        document.activeElement === searchInputRef.current ||
+        ["INPUT", "TEXTAREA"].includes((document.activeElement as HTMLElement)?.tagName);
+
       if (
         (e.key === "/" || (e.key === "k" && (e.metaKey || e.ctrlKey))) &&
-        document.activeElement !== searchInputRef.current &&
-        !["INPUT", "TEXTAREA"].includes((document.activeElement as HTMLElement)?.tagName)
+        !isInputFocused
       ) {
         e.preventDefault();
         searchInputRef.current?.focus();
@@ -134,59 +144,95 @@ export default function TimelinePage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isSearchFocused]);
 
-  // Sync with IndexedDB if records exist, otherwise seed initial articles
+  // Sync with IndexedDB if records exist, then run quiet background sync through edge proxy
   useEffect(() => {
     let isMounted = true;
-    getArticles()
-      .then(async (stored) => {
-        if (isMounted && stored && stored.length > 0) {
-          const mapped: ArticleCardData[] = stored.map((item) => ({
+
+    const loadLocalArticles = async () => {
+      // 1. Ensure seed dataset (12 curated indie tech feeds) is initialized in Dexie
+      await initializeSeedData().catch(() => {});
+
+      const [storedArticles, storedSubs] = await Promise.all([
+        getArticles().catch(() => []),
+        getSubscriptions().catch(() => []),
+      ]);
+
+      const subMap = new Map(storedSubs.map((s) => [s.id, s]));
+
+      if (isMounted && storedArticles && storedArticles.length > 0) {
+        const mapped: ArticleCardData[] = storedArticles.map((item) => {
+          const parentSub = subMap.get(item.subscriptionId);
+          return {
             id: item.id,
-            feedTitle: item.subscriptionId,
-            feedCategory: item.subscriptionId.includes("Engineering")
-              ? "Engineering"
-              : item.subscriptionId.includes("Vercel")
-              ? "Frontend"
-              : item.subscriptionId.includes("Simon")
-              ? "AI / Dev"
-              : "Technology",
+            feedTitle: parentSub?.title || item.subscriptionId,
+            feedCategory: parentSub?.category || (item.subscriptionId.includes("Engineering") ? "Engineering" : "Technology"),
             title: item.title,
             summary: item.summary,
-            author: item.author,
+            author: item.author || parentSub?.title || "Staff",
             published: new Date(item.publishedAt).toLocaleDateString(),
             readingTimeMinutes: item.readingTimeMinutes || 4,
             isRead: item.isRead,
             isBookmarked: item.isBookmarked,
             originalUrl: item.url,
-          }));
-          setArticles(mapped);
-        } else if (isMounted) {
-          // Pre-seed Dexie with INITIAL_ARTICLES so user actions persist immediately
-          const { db } = await import("@/lib/db");
-          for (const a of INITIAL_ARTICLES) {
-            await db.articles
-              .put({
-                id: a.id,
-                subscriptionId: a.feedTitle,
-                title: a.title,
-                summary: a.summary,
-                content: a.summary,
-                author: a.author,
-                url: a.originalUrl || "",
-                publishedAt: Date.now() - (a.id === "art-1" ? 7200000 : 18000000),
-                readingTimeMinutes: a.readingTimeMinutes,
-                isRead: a.isRead,
-                isBookmarked: a.isBookmarked,
-              })
-              .catch(() => {});
+          };
+        });
+        setArticles(mapped);
+      }
+
+      // 2. Quietly trigger real proxy background sync across all subscriptions
+      syncAllFeeds({ force: true })
+        .then(async (summary) => {
+          if (isMounted && summary.refreshed > 0) {
+            const [freshArticles, freshSubs] = await Promise.all([
+              getArticles().catch(() => []),
+              getSubscriptions().catch(() => []),
+            ]);
+            const freshSubMap = new Map(freshSubs.map((s) => [s.id, s]));
+            if (isMounted && freshArticles && freshArticles.length > 0) {
+              const refreshedMapped: ArticleCardData[] = freshArticles.map((item) => {
+                const parentSub = freshSubMap.get(item.subscriptionId);
+                return {
+                  id: item.id,
+                  feedTitle: parentSub?.title || item.subscriptionId,
+                  feedCategory: parentSub?.category || "Technology",
+                  title: item.title,
+                  summary: item.summary,
+                  author: item.author || parentSub?.title || "Staff",
+                  published: new Date(item.publishedAt).toLocaleDateString(),
+                  readingTimeMinutes: item.readingTimeMinutes || 4,
+                  isRead: item.isRead,
+                  isBookmarked: item.isBookmarked,
+                  originalUrl: item.url,
+                };
+              });
+              setArticles(refreshedMapped);
+            }
           }
-        }
-      })
-      .catch(() => {});
+        })
+        .catch(() => {});
+    };
+
+    loadLocalArticles();
+
     return () => {
       isMounted = false;
     };
   }, []);
+
+  // IntersectionObserver for auto-infinite scrolling
+  useEffect(() => {
+    if (!loadMoreRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setDisplayCount((prev) => prev + 15);
+        }
+      },
+      { rootMargin: "400px" }
+    );
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [articles.length]);
 
   const tags = useMemo(() => {
     const set = new Set<string>();
@@ -300,13 +346,55 @@ export default function TimelinePage() {
     });
   }, [articles, filter, selectedTag, selectedFeed, search]);
 
+  // Keyboard navigation engine (j/k: prev/next, Enter/o: open, m: mark read, s: star)
+  useEffect(() => {
+    const handleKeyNav = (e: KeyboardEvent) => {
+      const isInputFocused =
+        document.activeElement === searchInputRef.current ||
+        ["INPUT", "TEXTAREA"].includes((document.activeElement as HTMLElement)?.tagName);
+
+      if (isInputFocused) return;
+
+      if (e.key === "j" || e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIndex((prev) => {
+          const next = prev < filteredArticles.length - 1 ? prev + 1 : prev;
+          return next;
+        });
+      } else if (e.key === "k" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIndex((prev) => (prev > 0 ? prev - 1 : 0));
+      } else if ((e.key === "Enter" || e.key === "o") && selectedIndex >= 0 && selectedIndex < filteredArticles.length) {
+        e.preventDefault();
+        const selected = filteredArticles[selectedIndex];
+        if (selected) {
+          router.push(`/read/${selected.id}`);
+        }
+      } else if (e.key === "m" && selectedIndex >= 0 && selectedIndex < filteredArticles.length) {
+        e.preventDefault();
+        const selected = filteredArticles[selectedIndex];
+        if (selected) {
+          toggleRead(selected.id);
+        }
+      } else if (e.key === "s" && selectedIndex >= 0 && selectedIndex < filteredArticles.length) {
+        e.preventDefault();
+        const selected = filteredArticles[selectedIndex];
+        if (selected) {
+          toggleBookmark(selected.id);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyNav);
+    return () => window.removeEventListener("keydown", handleKeyNav);
+  }, [selectedIndex, filteredArticles, router]);
+
   return (
-    <div className="flex-1 flex flex-col px-4 sm:px-8 py-8 sm:py-12 max-w-4xl mx-auto w-full gap-8 animate-fade-in-up">
+    <div className="flex-1 flex flex-col px-4 sm:px-8 py-8 sm:py-12 max-w-[840px] mx-auto w-full gap-8 animate-fade-in-up">
       {/* Spacious, Serene Page Header */}
       <header className="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-5 pb-6 border-b border-border/50 relative">
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium tracking-wide">
-            <span className="status-dot-emerald" />
             <span className="font-medium text-foreground/85">Quiet Digest</span>
             <span className="text-border">•</span>
             <span className="font-mono text-[11px]">{unreadCount} unread stories</span>
@@ -546,14 +634,36 @@ export default function TimelinePage() {
             )}
           </div>
         ) : (
-          filteredArticles.map((article) => (
-            <ArticleCard
-              key={article.id}
-              article={article}
-              onToggleRead={toggleRead}
-              onToggleBookmark={toggleBookmark}
-            />
-          ))
+          <>
+            {filteredArticles.slice(0, displayCount).map((article, idx) => (
+              <ArticleCard
+                key={article.id}
+                article={article}
+                isSelected={idx === selectedIndex}
+                onToggleRead={toggleRead}
+                onToggleBookmark={toggleBookmark}
+              />
+            ))}
+
+            {/* Infinite Scroll Sentinel */}
+            <div ref={loadMoreRef} className="h-8 w-full" />
+
+            {/* Load More Manual Trigger if many articles remain */}
+            {filteredArticles.length > displayCount && (
+              <div className="py-2 flex flex-col items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDisplayCount((prev) => prev + 15)}
+                  className="px-4 py-2 rounded-xl border border-border/70 bg-card hover:bg-muted text-xs font-medium text-foreground btn-press shadow-2xs inline-flex items-center gap-2"
+                >
+                  <span>Load More Stories</span>
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    ({filteredArticles.length - displayCount} remaining)
+                  </span>
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

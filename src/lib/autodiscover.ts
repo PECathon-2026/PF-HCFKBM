@@ -148,19 +148,23 @@ export function discoverFeedsFromHtml(html: string, baseUrl: string): Discovered
       const isFeedType = /\btype=["'](?:application\/(?:rss\+xml|atom\+xml|feed\+json|xml)|text\/xml)["']/i.test(tag);
 
       if ((hasAlternate && isFeedType) || isFeedType) {
-        const hrefMatch = tag.match(/\bhref=["']([^"']+)["']/i);
-        const titleMatch = tag.match(/\btitle=["']([^"']+)["']/i);
-        const typeMatch = tag.match(/\btype=["']([^"']+)["']/i);
+        const hrefMatch = tag.match(/\bhref=(?:"([^"]+)"|'([^']+)'|([^\s>]+))/i);
+        const titleMatch = tag.match(/\btitle=(?:"([^"]+)"|'([^']+)'|([^\s>]+))/i);
+        const typeMatch = tag.match(/\btype=(?:"([^"]+)"|'([^']+)'|([^\s>]+))/i);
 
-        if (hrefMatch?.[1]) {
+        const hrefVal = hrefMatch?.[1] || hrefMatch?.[2] || hrefMatch?.[3];
+        const titleVal = titleMatch?.[1] || titleMatch?.[2] || titleMatch?.[3];
+        const typeVal = typeMatch?.[1] || typeMatch?.[2] || typeMatch?.[3];
+
+        if (hrefVal) {
           try {
-            const resolved = new URL(hrefMatch[1], baseUrl).toString();
+            const resolved = new URL(hrefVal, baseUrl).toString();
             if (!seenUrls.has(resolved)) {
               seenUrls.add(resolved);
               feeds.push({
                 url: resolved,
-                title: titleMatch?.[1],
-                type: inferFeedType(typeMatch?.[1], resolved),
+                title: titleVal,
+                type: inferFeedType(typeVal, resolved),
               });
             }
           } catch {

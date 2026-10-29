@@ -9,7 +9,8 @@
     "build": "next build",
     "start": "next start",
     "server": "tsx src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",

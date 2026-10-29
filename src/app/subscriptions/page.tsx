@@ -27,6 +27,8 @@ import {
   type Subscription,
   type SubscriptionStatus,
 } from "@/lib/db";
+import { refreshFeed } from "@/lib/sync";
+import { autodiscover } from "@/lib/autodiscover";
 
 interface SubscriptionWithMeta extends Omit<Subscription, "status"> {
   articlesCount: number;
@@ -125,10 +127,14 @@ export default function SubscriptionsPage() {
     e.preventDefault();
     setFormError(null);
 
-    const trimmed = feedUrl.trim();
+    let trimmed = feedUrl.trim();
     if (!trimmed) {
       setFormError("Please enter a feed URL or site address");
       return;
+    }
+
+    if (!/^https?:\/\//i.test(trimmed)) {
+      trimmed = `https://${trimmed}`;
     }
 
     try {
@@ -141,12 +147,32 @@ export default function SubscriptionsPage() {
     setIsSubmitting(true);
 
     try {
-      const hostname = new URL(trimmed).hostname.replace(/^www\./, "");
+      // 1. If not clearly an XML feed URL, attempt autodiscovery
+      let finalFeedUrl = trimmed;
+      let discoveredTitle: string | undefined;
+
+      const isDirectFeed =
+        /\.(xml|rss|atom)$/i.test(trimmed) ||
+        /\/(feed|rss|atom)(\.xml|\/)?$/i.test(trimmed);
+
+      if (!isDirectFeed) {
+        try {
+          const discovery = await autodiscover(trimmed);
+          if (discovery.feeds && discovery.feeds.length > 0) {
+            finalFeedUrl = discovery.feeds[0].url;
+            discoveredTitle = discovery.feeds[0].title;
+          }
+        } catch {
+          // Fall back to direct URL if discovery fails
+        }
+      }
+
+      const hostname = new URL(finalFeedUrl).hostname.replace(/^www\./, "");
       const newSub: Omit<Subscription, "createdAt"> = {
         id: `sub-${Date.now()}`,
-        url: trimmed,
+        url: finalFeedUrl,
         siteUrl: `https://${hostname}`,
-        title: hostname.charAt(0).toUpperCase() + hostname.slice(1),
+        title: discoveredTitle || hostname.charAt(0).toUpperCase() + hostname.slice(1),
         category: feedCategory,
         status: "active",
         errorCount: 0,
@@ -156,9 +182,9 @@ export default function SubscriptionsPage() {
 
       const item: SubscriptionWithMeta = {
         ...newSub,
-        articlesCount: 1,
-        lastSyncedText: "Just now",
-        status: "active",
+        articlesCount: 0,
+        lastSyncedText: "Syncing...",
+        status: "syncing",
         createdAt: Date.now(),
       };
 
@@ -167,6 +193,24 @@ export default function SubscriptionsPage() {
       setIsAddModalOpen(false);
       setNotice(`Subscribed to ${item.title}`);
       setTimeout(() => setNotice(null), 3500);
+
+      // 2. Trigger real background proxy fetch and client parsing
+      refreshFeed({ ...newSub, createdAt: Date.now() }, { force: true })
+        .then((res) => {
+          setSubscriptions((prev) =>
+            prev.map((s) =>
+              s.id === newSub.id
+                ? {
+                    ...s,
+                    lastSyncedText: "Just now",
+                    articlesCount: res.newArticlesCount ?? s.articlesCount,
+                    status: res.success ? "active" : "error",
+                  }
+                : s
+            )
+          );
+        })
+        .catch(() => {});
     } catch (err: unknown) {
       setFormError(
         err instanceof Error ? err.message : "Failed to add subscription"
@@ -176,18 +220,51 @@ export default function SubscriptionsPage() {
     }
   };
 
-  const handleResync = (id: string) => {
+  const handleResync = async (id: string) => {
+    const sub = subscriptions.find((s) => s.id === id);
+    if (!sub) return;
+
     setSyncingId(id);
-    setTimeout(() => {
+    setSubscriptions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, status: "syncing" as const } : s))
+    );
+
+    try {
+      const res = await refreshFeed(
+        {
+          id: sub.id,
+          url: sub.url,
+          title: sub.title,
+          siteUrl: sub.siteUrl,
+          category: sub.category,
+          status: "active",
+          errorCount: sub.errorCount,
+          createdAt: sub.createdAt,
+        },
+        { force: true }
+      );
+
       setSubscriptions((prev) =>
         prev.map((s) =>
           s.id === id
-            ? { ...s, lastSyncedText: "Just now", status: "active" as const }
+            ? {
+                ...s,
+                lastSyncedText: "Just now",
+                articlesCount: res.newArticlesCount !== undefined ? res.newArticlesCount : s.articlesCount,
+                status: res.success ? ("active" as const) : ("error" as const),
+              }
             : s
         )
       );
+      setNotice(`Refreshed ${sub.title}`);
+      setTimeout(() => setNotice(null), 3000);
+    } catch {
+      setSubscriptions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, status: "error" as const } : s))
+      );
+    } finally {
       setSyncingId(null);
-    }, 700);
+    }
   };
 
   const handleConfirmDelete = async () => {
