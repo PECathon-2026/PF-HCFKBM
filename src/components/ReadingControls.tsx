@@ -22,6 +22,8 @@ import {
   MapPin,
   BookmarkCheck,
   CornerDownRight,
+  FileText,
+  Loader2,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -72,6 +74,9 @@ export interface ReadingControlsProps {
   onClearReadingSpot?: () => void;
   onToggleLibraryDrawer?: () => void;
   onShare?: () => void;
+  onTriggerSummary?: () => void;
+  isSummarizing?: boolean;
+  hasSummary?: boolean;
   className?: string;
 }
 
@@ -116,6 +121,9 @@ export function ReadingControls({
   onClearReadingSpot,
   onToggleLibraryDrawer,
   onShare,
+  onTriggerSummary,
+  isSummarizing,
+  hasSummary,
   className,
 }: ReadingControlsProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -462,6 +470,44 @@ export function ReadingControls({
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Feature 7: Executive Briefing */}
+          {onTriggerSummary && (
+            <div className="flex flex-col gap-2 p-2.5 rounded-xl border border-border/70 bg-muted/20">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-foreground flex items-center gap-1.5 text-xs">
+                  <FileText className="h-3.5 w-3.5 text-foreground/80" />
+                  <span>Executive Briefing</span>
+                </span>
+                {hasSummary && (
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium">
+                    Ready
+                  </span>
+                )}
+              </div>
+
+              <button
+                onClick={() => {
+                  setIsOpen(false);
+                  onTriggerSummary();
+                }}
+                disabled={isSummarizing}
+                className="w-full py-2 px-3 rounded-xl apple-glass-btn text-foreground text-xs font-medium flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isSummarizing ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                    <span>Synthesizing Briefing...</span>
+                  </>
+                ) : (
+                  <>
+                    <FileText className="h-3.5 w-3.5 opacity-80" />
+                    <span>{hasSummary ? "View Executive Briefing" : "Generate Briefing"}</span>
+                  </>
+                )}
+              </button>
             </div>
           )}
 
