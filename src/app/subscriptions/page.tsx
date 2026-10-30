@@ -25,6 +25,7 @@ import {
   db,
   getSubscriptions,
   addSubscription,
+  deleteSubscription,
   type Subscription,
   type SubscriptionStatus,
 } from "@/lib/db";
@@ -131,7 +132,16 @@ export default function SubscriptionsPage() {
         errorCount: 0,
       };
 
-      await addSubscription(newSub).catch(() => {});
+      const validation = await refreshFeed(
+        { ...newSub, createdAt: Date.now() },
+        { force: true }
+      );
+      if (!validation.success) {
+        setFormError(validation.error || "Feed validation failed. The publication could not be fetched.");
+        return;
+      }
+
+      await addSubscription(newSub);
 
       const item: SubscriptionWithMeta = {
         ...newSub,
@@ -227,7 +237,7 @@ export default function SubscriptionsPage() {
     setDeleteTargetId(null);
     try {
       const { db } = await import("@/lib/db");
-      await db.subscriptions.delete(target);
+      await deleteSubscription(target);
     } catch {}
   };
 

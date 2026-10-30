@@ -35,9 +35,15 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-#scripts
-/scripts
+# scripts are tracked because feed validation is part of subscription ingestion
 
-#tasks
+# tasks
 /tasks
-/tests 
+
+# tests
+/tests
+
+# Python caches
+__pycache__/
+*.py[cod]
+
