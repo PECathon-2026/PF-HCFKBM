@@ -323,6 +323,7 @@ export default function SubscriptionsPage() {
             ).catch(() => ({
               success: false,
               error: "Feed validation failed",
+              newArticlesCount: 0,
             }));
             if (!validation.success) continue;
 
