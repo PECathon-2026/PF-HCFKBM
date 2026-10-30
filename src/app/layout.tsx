@@ -59,7 +59,7 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen bg-background text-foreground flex flex-col font-sans antialiased selection:bg-primary/10 selection:text-primary transition-colors duration-200 relative overflow-x-hidden">
         <Sidebar />
-        <main className="flex-1 w-full flex flex-col min-w-0 relative z-10">
+        <main className="flex-1 w-full flex flex-col min-w-0 relative z-10 md:pl-64 transition-all duration-200">
           {children}
         </main>
       </body>

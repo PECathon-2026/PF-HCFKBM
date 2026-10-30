@@ -7,20 +7,19 @@ import {
   CheckCheck,
   SlidersHorizontal,
   X,
-  Compass,
-  Feather,
-  Flame,
-  Clock,
   Command,
-  ArrowRight,
   TrendingUp,
-  Tag,
   Rss,
+  ChevronUp,
+  ChevronDown,
+  Layers,
+  Eye,
+  EyeOff,
 } from "lucide-react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { ArticleCard, type ArticleCardData } from "@/components/ArticleCard";
+import { LandingHero } from "@/components/LandingHero";
 import { getArticles, getSubscriptions, markArticleRead, toggleArticleBookmark } from "@/lib/db";
 import { syncAllFeeds } from "@/lib/sync";
 import { initializeSeedData } from "@/lib/seed";
@@ -72,10 +71,15 @@ export default function TimelinePage() {
   const [search, setSearch] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [articles, setArticles] = useState<ArticleCardData[]>(INITIAL_ARTICLES);
-  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [displayCount, setDisplayCount] = useState<number>(15);
+
+  // Single-card blurred carousel stream state
+  const [carouselFocusMode, setCarouselFocusMode] = useState<boolean>(true);
+  const [focusedCardIndex, setFocusedCardIndex] = useState<number>(0);
+
   const searchInputRef = useRef<HTMLInputElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   // Focus search shortcut (/ or Cmd+K)
   useEffect(() => {
@@ -302,7 +306,49 @@ export default function TimelinePage() {
     });
   }, [articles, filter, selectedTag, selectedFeed, search]);
 
-  // Keyboard navigation engine (j/k: prev/next, Enter/o: open, m: mark read, s: star)
+  // Smooth scroll jump to specific card index
+  const scrollToCard = (index: number) => {
+    if (index < 0 || index >= filteredArticles.length) return;
+    const target = cardRefs.current[index];
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      setFocusedCardIndex(index);
+    }
+  };
+
+  // Carousel scroll detector: dynamically sets focusedCardIndex to whichever card is in center viewport
+  useEffect(() => {
+    if (!carouselFocusMode) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const idxStr = entry.target.getAttribute("data-card-index");
+            if (idxStr !== null) {
+              const idx = parseInt(idxStr, 10);
+              if (!isNaN(idx)) {
+                setFocusedCardIndex(idx);
+              }
+            }
+          }
+        });
+      },
+      {
+        root: null,
+        rootMargin: "-25% 0px -25% 0px", // triggers when card is in vertical center
+        threshold: 0.25,
+      }
+    );
+
+    cardRefs.current.forEach((el) => {
+      if (el) observer.observe(el);
+    });
+
+    return () => observer.disconnect();
+  }, [filteredArticles, displayCount, carouselFocusMode]);
+
+  // Keyboard navigation engine (j/k: carousel snap, Enter/o: open, m: mark read, s: star)
   useEffect(() => {
     const handleKeyNav = (e: KeyboardEvent) => {
       const isInputFocused =
@@ -313,28 +359,27 @@ export default function TimelinePage() {
 
       if (e.key === "j" || e.key === "ArrowDown") {
         e.preventDefault();
-        setSelectedIndex((prev) => {
-          const next = prev < filteredArticles.length - 1 ? prev + 1 : prev;
-          return next;
-        });
+        const next = Math.min(focusedCardIndex + 1, filteredArticles.length - 1);
+        scrollToCard(next);
       } else if (e.key === "k" || e.key === "ArrowUp") {
         e.preventDefault();
-        setSelectedIndex((prev) => (prev > 0 ? prev - 1 : 0));
-      } else if ((e.key === "Enter" || e.key === "o") && selectedIndex >= 0 && selectedIndex < filteredArticles.length) {
+        const prev = Math.max(focusedCardIndex - 1, 0);
+        scrollToCard(prev);
+      } else if ((e.key === "Enter" || e.key === "o") && focusedCardIndex >= 0 && focusedCardIndex < filteredArticles.length) {
         e.preventDefault();
-        const selected = filteredArticles[selectedIndex];
+        const selected = filteredArticles[focusedCardIndex];
         if (selected) {
           router.push(`/read/${selected.id}`);
         }
-      } else if (e.key === "m" && selectedIndex >= 0 && selectedIndex < filteredArticles.length) {
+      } else if (e.key === "m" && focusedCardIndex >= 0 && focusedCardIndex < filteredArticles.length) {
         e.preventDefault();
-        const selected = filteredArticles[selectedIndex];
+        const selected = filteredArticles[focusedCardIndex];
         if (selected) {
           toggleRead(selected.id);
         }
-      } else if (e.key === "s" && selectedIndex >= 0 && selectedIndex < filteredArticles.length) {
+      } else if (e.key === "s" && focusedCardIndex >= 0 && focusedCardIndex < filteredArticles.length) {
         e.preventDefault();
-        const selected = filteredArticles[selectedIndex];
+        const selected = filteredArticles[focusedCardIndex];
         if (selected) {
           toggleBookmark(selected.id);
         }
@@ -343,10 +388,24 @@ export default function TimelinePage() {
 
     window.addEventListener("keydown", handleKeyNav);
     return () => window.removeEventListener("keydown", handleKeyNav);
-  }, [selectedIndex, filteredArticles, router]);
+  }, [focusedCardIndex, filteredArticles, router]);
 
   return (
     <div className="flex-1 flex flex-col px-4 sm:px-8 py-8 sm:py-12 max-w-[840px] mx-auto w-full gap-8 animate-fade-in-up">
+      {/* 1. Minimalist Glitch Decrypt Landing Hero with Shader Canvas */}
+      <LandingHero
+        onStartReading={() => {
+          const anchor = document.getElementById("timeline-feed-anchor");
+          if (anchor) {
+            anchor.scrollIntoView({ behavior: "smooth" });
+          } else {
+            scrollToCard(0);
+          }
+        }}
+      />
+
+      <div id="timeline-feed-anchor" className="scroll-mt-6" />
+
       {/* Spacious, Serene Page Header */}
       <header className="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-5 pb-6 border-b border-border/50 relative">
         <div className="flex flex-col gap-2">
@@ -363,28 +422,53 @@ export default function TimelinePage() {
           </p>
         </div>
 
-        {/* Filter Pills */}
-        <div className="flex items-center gap-1.5 p-1 bg-muted/60 rounded-xl border border-border/60 shadow-2xs shrink-0 self-stretch sm:self-auto">
-          {(
-            [
-              { id: "all", label: "All" },
-              { id: "unread", label: `Unread (${unreadCount})` },
-              { id: "bookmarked", label: "Starred" },
-            ] as const
-          ).map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setFilter(tab.id)}
-              className={cn(
-                "flex-1 sm:flex-none px-3.5 py-1.5 text-xs font-medium rounded-lg btn-press transition-all duration-160",
-                filter === tab.id
-                  ? "bg-card text-foreground font-semibold border border-border/70 card-linear"
-                  : "text-muted-foreground hover:text-foreground hover:bg-card/40"
-              )}
-            >
-              {tab.label}
-            </button>
-          ))}
+        {/* Filter Pills & Focus Carousel Mode Toggle */}
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+          <button
+            onClick={() => setCarouselFocusMode(!carouselFocusMode)}
+            className={cn(
+              "px-3 py-1.5 text-xs font-medium rounded-lg btn-press flex items-center gap-1.5 transition-all duration-160 border",
+              carouselFocusMode
+                ? "bg-foreground text-background font-semibold shadow-xs border-foreground"
+                : "border-border/60 bg-muted/50 text-muted-foreground hover:text-foreground"
+            )}
+            title="Toggle Single-Card Blurred Carousel Focus"
+          >
+            {carouselFocusMode ? (
+              <>
+                <Eye className="h-3.5 w-3.5" />
+                <span>Carousel Focus ON</span>
+              </>
+            ) : (
+              <>
+                <EyeOff className="h-3.5 w-3.5" />
+                <span>Carousel Focus OFF</span>
+              </>
+            )}
+          </button>
+
+          <div className="flex items-center gap-1.5 p-1 bg-muted/60 rounded-xl border border-border/60 shadow-2xs shrink-0">
+            {(
+              [
+                { id: "all", label: "All" },
+                { id: "unread", label: `Unread (${unreadCount})` },
+                { id: "bookmarked", label: "Starred" },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setFilter(tab.id)}
+                className={cn(
+                  "px-3.5 py-1.5 text-xs font-medium rounded-lg btn-press transition-all duration-160",
+                  filter === tab.id
+                    ? "bg-card text-foreground font-semibold border border-border/70 card-linear"
+                    : "text-muted-foreground hover:text-foreground hover:bg-card/40"
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
       </header>
 
@@ -561,8 +645,43 @@ export default function TimelinePage() {
         </div>
       </div>
 
-      {/* Article Stream: Spacious, expansive editorial layout (1-2 per viewport) */}
-      <div className="flex flex-col gap-10 sm:gap-14">
+      {/* Floating Carousel Deck Navigator (Available when carouselFocusMode is enabled) */}
+      {carouselFocusMode && filteredArticles.length > 0 && (
+        <div className="sticky top-4 z-30 flex items-center justify-between p-2 rounded-2xl bg-card/90 backdrop-blur-md border border-border/70 shadow-lg text-xs font-mono card-linear">
+          <div className="flex items-center gap-2 px-3 py-1">
+            <Layers className="h-3.5 w-3.5 text-primary" />
+            <span className="text-foreground font-medium font-sans">Carousel Deck</span>
+            <span className="text-border">•</span>
+            <span className="text-muted-foreground">
+              Story <strong className="text-foreground">{focusedCardIndex + 1}</strong> of {filteredArticles.length}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => scrollToCard(Math.max(focusedCardIndex - 1, 0))}
+              disabled={focusedCardIndex === 0}
+              className="p-1.5 rounded-lg border border-border/50 text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 btn-press"
+              title="Previous Story (K)"
+              aria-label="Previous story"
+            >
+              <ChevronUp className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => scrollToCard(Math.min(focusedCardIndex + 1, filteredArticles.length - 1))}
+              disabled={focusedCardIndex >= filteredArticles.length - 1}
+              className="p-1.5 rounded-lg border border-border/50 text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 btn-press"
+              title="Next Story (J)"
+              aria-label="Next story"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Article Stream: Single-card blurred carousel deck */}
+      <div className="flex flex-col gap-12 sm:gap-16 py-4">
         {filteredArticles.length === 0 ? (
           <div className="py-20 px-6 text-center border border-border/60 rounded-xl flex flex-col items-center justify-center gap-3 bg-card/60 backdrop-blur-xs card-linear">
             <div className="p-3.5 rounded-xl bg-muted/60 text-muted-foreground shadow-xs">
@@ -591,15 +710,29 @@ export default function TimelinePage() {
           </div>
         ) : (
           <>
-            {filteredArticles.slice(0, displayCount).map((article, idx) => (
-              <ArticleCard
-                key={article.id}
-                article={article}
-                isSelected={idx === selectedIndex}
-                onToggleRead={toggleRead}
-                onToggleBookmark={toggleBookmark}
-              />
-            ))}
+            {filteredArticles.slice(0, displayCount).map((article, idx) => {
+              const isFocused = !carouselFocusMode || idx === focusedCardIndex;
+
+              return (
+                <div
+                  key={article.id}
+                  data-card-index={idx}
+                  ref={(el) => {
+                    cardRefs.current[idx] = el;
+                  }}
+                  className="transition-all duration-300"
+                >
+                  <ArticleCard
+                    article={article}
+                    isSelected={idx === focusedCardIndex}
+                    isFocused={isFocused}
+                    onFocusCard={() => scrollToCard(idx)}
+                    onToggleRead={toggleRead}
+                    onToggleBookmark={toggleBookmark}
+                  />
+                </div>
+              );
+            })}
 
             {/* Infinite Scroll Sentinel */}
             <div ref={loadMoreRef} className="h-8 w-full" />
