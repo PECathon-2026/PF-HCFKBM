@@ -316,14 +316,24 @@ export default function SubscriptionsPage() {
               status: "active",
               errorCount: 0,
             };
-            await addSubscription(subRecord).catch(() => {});
+            const createdAt = Date.now();
+            const validation = await refreshFeed(
+              { ...subRecord, createdAt },
+              { force: true }
+            ).catch(() => ({
+              success: false,
+              error: "Feed validation failed",
+            }));
+            if (!validation.success) continue;
+
+            await addSubscription(subRecord);
 
             newSubs.push({
               ...subRecord,
-              articlesCount: 0,
-              lastSyncedText: "Not synced yet",
+              articlesCount: validation.newArticlesCount ?? 0,
+              lastSyncedText: new Date().toLocaleString(),
               status: "active",
-              createdAt: Date.now(),
+              createdAt,
             });
           }
 
