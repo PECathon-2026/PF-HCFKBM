@@ -17,6 +17,12 @@ import {
   Sparkles,
   Loader2,
   RefreshCw,
+  Copy,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Share2,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { extractArticle } from "@/lib/parser";
@@ -57,6 +63,71 @@ interface ArticleDetail {
   isSummaryFallback: boolean;
 }
 
+interface ParsedSummary {
+  overview: string;
+  findings: string[];
+  implications: string;
+}
+
+function parseGeminiSummary(text: string): ParsedSummary {
+  const result: ParsedSummary = {
+    overview: "",
+    findings: [],
+    implications: "",
+  };
+
+  if (!text) return result;
+
+  // Match Executive Overview / Executive Summary / TL;DR
+  const overviewMatch = text.match(
+    /###\s*(?:⚡\s*)?(?:Executive\s+)?(?:Overview|Summary|TL;?DR)\s*\n+([\s\S]*?)(?=###|$)/i
+  );
+  // Match Key Findings & Analysis / Key Takeaways
+  const findingsMatch = text.match(
+    /###\s*(?:📌\s*)?(?:Key\s+)?(?:Findings|Analysis|Takeaways)[\s\S]*?\n+([\s\S]*?)(?=###|$)/i
+  );
+  // Match Strategic Implications & Conclusion / Core Takeaway
+  const implicationsMatch = text.match(
+    /###\s*(?:💡\s*)?(?:Strategic\s+)?(?:Implications|Conclusion|Core\s+Takeaway)[\s\S]*?\n+([\s\S]*?)(?=###|$)/i
+  );
+
+  if (overviewMatch) {
+    result.overview = overviewMatch[1].trim();
+  }
+  if (findingsMatch) {
+    const rawFindings = findingsMatch[1].trim();
+    const lines = rawFindings
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith("-") || l.startsWith("*") || /^\d+\./.test(l))
+      .map((l) => l.replace(/^[-*•]\s*|^\d+\.\s*/, "").trim());
+    result.findings = lines.length > 0 ? lines : [rawFindings];
+  }
+  if (implicationsMatch) {
+    result.implications = implicationsMatch[1].trim();
+  }
+
+  // Graceful fallback if unstructured
+  if (!result.overview && !result.implications && result.findings.length === 0) {
+    result.overview = text.trim();
+  }
+
+  return result;
+}
+
+function renderFormattedTakeaway(text: string) {
+  const match = text.match(/^\*\*([^*]+)\*\*[:\s-]*(.*)$/);
+  if (match) {
+    return (
+      <span className="leading-relaxed">
+        <strong className="font-semibold text-foreground tracking-tight">{match[1]}: </strong>
+        <span className="text-foreground/85 leading-relaxed">{match[2]}</span>
+      </span>
+    );
+  }
+  return <span className="text-foreground/85 leading-relaxed">{text}</span>;
+}
+
 const EMPTY_ARTICLE: ArticleDetail = {
   id: "",
   feedTitle: "Feed Source",
@@ -87,6 +158,13 @@ export default function ReaderPage({ params }: ReaderProps) {
   const [markerNotice, setMarkerNotice] = useState<string | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
 
+  // Gemini AI Executive Briefing State
+  const [summary, setSummary] = useState<string | null>(null);
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [isSummaryExpanded, setIsSummaryExpanded] = useState(true);
+  const [copiedSummary, setCopiedSummary] = useState(false);
+
   // Initialize theme from HTML class or localStorage
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -102,6 +180,12 @@ export default function ReaderPage({ params }: ReaderProps) {
           if (parsed.scrollY > 250) {
             setShowResumeBanner(true);
           }
+        }
+
+        // Load cached Gemini executive summary
+        const cachedSummary = localStorage.getItem(`onlydevs_summary_${params.id}`);
+        if (cachedSummary) {
+          setSummary(cachedSummary);
         }
       } catch (_) {}
     }
@@ -338,6 +422,82 @@ export default function ReaderPage({ params }: ReaderProps) {
     } catch (_) {}
   };
 
+  // Trigger Gemini AI Summarizer
+  const handleTriggerSummary = async (forceRefresh = false) => {
+    // If summary is already cached and not forcing refresh, just expand and scroll
+    if (summary && !forceRefresh) {
+      setIsSummaryExpanded(true);
+      const el = document.getElementById("ai-summary-card");
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      return;
+    }
+
+    const textContent = article.content || article.summary;
+    if (!textContent || textContent.trim().length < 40) {
+      setMarkerNotice("No article content available yet to summarize");
+      setTimeout(() => setMarkerNotice(null), 3000);
+      return;
+    }
+
+    setIsSummarizing(true);
+    setSummaryError(null);
+    setIsSummaryExpanded(true);
+    setMarkerNotice("Synthesizing executive briefing with Gemini...");
+
+    try {
+      const res = await fetch("/api/summarize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          content: textContent,
+          title: article.title,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setSummaryError(data.error || data.details || "Failed to generate executive briefing.");
+        return;
+      }
+
+      if (data.summary) {
+        setSummary(data.summary);
+        try {
+          localStorage.setItem(`onlydevs_summary_${params.id}`, data.summary);
+        } catch (_) {}
+        setMarkerNotice("Executive briefing ready");
+        setTimeout(() => setMarkerNotice(null), 3000);
+
+        // Smooth scroll to summary card
+        setTimeout(() => {
+          const el = document.getElementById("ai-summary-card");
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          }
+        }, 100);
+      } else {
+        setSummaryError("Received empty summary from Gemini.");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSummaryError(`Network error while contacting Gemini: ${msg}`);
+    } finally {
+      setIsSummarizing(false);
+    }
+  };
+
+  const handleCopySummary = () => {
+    if (!summary) return;
+    navigator.clipboard.writeText(summary);
+    setCopiedSummary(true);
+    setTimeout(() => setCopiedSummary(false), 2000);
+  };
+
   const handleThemeChange = (newTheme: ReaderTheme) => {
     setTheme(newTheme);
     const root = document.documentElement;
@@ -350,6 +510,12 @@ export default function ReaderPage({ params }: ReaderProps) {
     }
     window.dispatchEvent(new Event("themechange"));
   };
+
+  // Parse Gemini AI Summary into structured sections
+  const parsedSummary = useMemo(() => {
+    if (!summary) return null;
+    return parseGeminiSummary(summary);
+  }, [summary]);
 
   // Crucial: Sanitize HTML content with zero-trust sanitizer (resolves relative image URLs)
   const sanitizedContent = useMemo(() => {
@@ -432,6 +598,9 @@ export default function ReaderPage({ params }: ReaderProps) {
         onJumpToReadingSpot={handleJumpToReadingSpot}
         onClearReadingSpot={handleClearReadingSpot}
         onToggleLibraryDrawer={() => setIsLibraryOpen(!isLibraryOpen)}
+        onTriggerSummary={() => handleTriggerSummary(false)}
+        isSummarizing={isSummarizing}
+        hasSummary={!!summary}
         onShare={handleShare}
       />
 
@@ -601,7 +770,271 @@ export default function ReaderPage({ params }: ReaderProps) {
               <ExternalLink className="h-3 w-3" />
             </a>
           </div>
+
+          {/* Reader Top Action Bar: Apple Glassy Button & Quick Actions */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-border/40">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => handleTriggerSummary(false)}
+                disabled={isSummarizing}
+                className={cn(
+                  "apple-glass-btn px-4 py-2 rounded-full text-xs font-medium inline-flex items-center gap-2 cursor-pointer transition-all",
+                  summary
+                    ? "font-semibold border-primary/30"
+                    : "opacity-95 hover:opacity-100"
+                )}
+                title="Generate comprehensive executive briefing"
+              >
+                {isSummarizing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                ) : (
+                  <FileText className="h-3.5 w-3.5 opacity-80" />
+                )}
+                <span className="tracking-tight">
+                  {isSummarizing
+                    ? "Synthesizing Briefing..."
+                    : summary
+                    ? "Executive Briefing"
+                    : "Executive Briefing"}
+                </span>
+                {summary && !isSummarizing && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-xs" />
+                )}
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs">
+              <button
+                onClick={handleToggleBookmark}
+                className={cn(
+                  "p-2 rounded-full border text-xs btn-press inline-flex items-center gap-1 transition-colors",
+                  isBookmarked
+                    ? "badge-amber font-semibold"
+                    : "border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                )}
+                title={isBookmarked ? "Starred" : "Star article"}
+              >
+                <Bookmark className={cn("h-3.5 w-3.5", isBookmarked && "fill-current")} />
+              </button>
+
+              <button
+                onClick={handleShare}
+                className="p-2 rounded-full border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 text-xs btn-press"
+                title="Share article link"
+              >
+                <Share2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
         </header>
+
+        {/* Gemini AI Executive Briefing Card / States */}
+        {isSummarizing && (
+          <div
+            id="ai-summary-card"
+            className={cn(
+              "p-6 rounded-2xl border text-xs flex flex-col gap-4 animate-in fade-in duration-200 card-linear backdrop-blur-2xl shadow-2xl",
+              theme === "sepia"
+                ? "bg-[#fbf0d9]/85 border-[#e7d5b5] text-[#433422] shadow-[0_12px_40px_rgba(67,52,34,0.08)]"
+                : "bg-card/85 border-border/80 text-foreground shadow-[0_12px_40px_rgba(0,0,0,0.35),inset_0_1px_1px_rgba(255,255,255,0.08)]"
+            )}
+          >
+            <div className="flex items-center justify-between border-b border-border/40 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="p-1 rounded-md border border-border/60 bg-background/80 text-foreground">
+                  <FileText className="h-3.5 w-3.5" />
+                </span>
+                <span className="text-xs font-mono font-bold tracking-wider uppercase text-foreground">
+                  Synthesizing Executive Briefing
+                </span>
+                <span className="font-mono text-[10px] px-2 py-0.5 rounded-full border border-border/60 bg-muted/40 text-muted-foreground font-medium">
+                  Gemini 2.5 Flash
+                </span>
+              </div>
+              <span className="text-[11px] font-mono text-muted-foreground flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                <span>Reading full text...</span>
+              </span>
+            </div>
+
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Synthesizing foundational thesis, technical methodology, trade-offs, and strategic conclusions...
+            </p>
+
+            <div className="space-y-2.5 pt-1">
+              <div className="h-3 bg-muted/60 rounded-full w-full animate-pulse" />
+              <div className="h-3 bg-muted/60 rounded-full w-5/6 animate-pulse" />
+              <div className="h-3 bg-muted/60 rounded-full w-3/4 animate-pulse" />
+            </div>
+          </div>
+        )}
+
+        {summaryError && !isSummarizing && (
+          <div className="p-4 rounded-xl border border-destructive/40 bg-destructive/10 text-xs text-destructive flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in duration-150">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <div className="flex flex-col gap-0.5">
+                <span className="font-semibold">Executive Briefing Error</span>
+                <span className="leading-relaxed opacity-90">{summaryError}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => handleTriggerSummary(true)}
+                className="px-3 py-1.5 rounded-lg bg-foreground text-background font-medium text-xs btn-press inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className="h-3 w-3" />
+                <span>Retry Synthesis</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {summary && !isSummarizing && (
+          <section
+            id="ai-summary-card"
+            className={cn(
+              "rounded-2xl border text-xs flex flex-col overflow-hidden transition-all duration-200 shadow-2xl backdrop-blur-2xl card-linear",
+              theme === "sepia"
+                ? "bg-[#fbf0d9]/85 border-[#e7d5b5] text-[#433422] shadow-[0_16px_48px_rgba(67,52,34,0.08)]"
+                : theme === "bone"
+                ? "bg-[#f7f4ed]/85 border-[#e6e0d3] text-[#292524] shadow-[0_16px_48px_rgba(41,37,36,0.06)]"
+                : theme === "sage"
+                ? "bg-[#edf2ec]/85 border-[#d8e2d6] text-[#1c2e24] shadow-[0_16px_48px_rgba(28,46,36,0.06)]"
+                : theme === "light"
+                ? "bg-white/85 border-neutral-200/90 text-neutral-900 shadow-[0_16px_48px_rgba(0,0,0,0.06)]"
+                : "bg-card/85 border-border/80 text-foreground shadow-[0_16px_48px_rgba(0,0,0,0.4),inset_0_1px_1px_rgba(255,255,255,0.08)]"
+            )}
+            aria-label="Executive Briefing"
+          >
+            {/* Professional Executive Briefing Header */}
+            <div className="p-4 sm:px-6 flex items-center justify-between gap-3 border-b border-border/60 bg-card/60 backdrop-blur-md">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="p-1.5 rounded-lg border border-border/70 bg-card/80 text-foreground shrink-0 shadow-2xs">
+                  <FileText className="h-3.5 w-3.5" />
+                </span>
+                <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
+                  <h2 className="text-xs font-mono font-bold tracking-wider uppercase text-foreground">
+                    Executive Briefing
+                  </h2>
+                  <span className="font-mono text-[10px] px-2 py-0.5 rounded-full border border-border/60 bg-muted/40 text-muted-foreground font-medium shrink-0">
+                    Gemini 2.5 Flash
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleCopySummary}
+                  className="px-2.5 py-1 rounded-lg border border-border/70 bg-card/70 hover:bg-card text-foreground text-xs font-medium btn-press inline-flex items-center gap-1.5 shadow-2xs cursor-pointer backdrop-blur-sm"
+                  title="Copy full briefing to clipboard"
+                >
+                  {copiedSummary ? (
+                    <>
+                      <Check className="h-3.5 w-3.5 text-emerald-500" />
+                      <span className="text-emerald-600 dark:text-emerald-400">Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span>Copy</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleTriggerSummary(true)}
+                  disabled={isSummarizing}
+                  className="p-1.5 rounded-lg border border-border/70 bg-card/70 hover:bg-card text-muted-foreground hover:text-foreground btn-press cursor-pointer backdrop-blur-sm"
+                  title="Regenerate executive briefing"
+                  aria-label="Regenerate executive briefing"
+                >
+                  <RefreshCw className={cn("h-3.5 w-3.5", isSummarizing && "animate-spin")} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
+                  className="p-1.5 rounded-lg border border-border/70 bg-card/70 hover:bg-card text-muted-foreground hover:text-foreground btn-press cursor-pointer backdrop-blur-sm"
+                  title={isSummaryExpanded ? "Collapse briefing" : "Expand briefing"}
+                  aria-label={isSummaryExpanded ? "Collapse briefing" : "Expand briefing"}
+                >
+                  {isSummaryExpanded ? (
+                    <ChevronUp className="h-4 w-4" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Collapsible Executive Briefing Content */}
+            {isSummaryExpanded && parsedSummary && (
+              <div className="p-6 sm:p-8 flex flex-col gap-6 leading-relaxed animate-in fade-in duration-150 bg-card/30 backdrop-blur-md">
+                {/* 1. Executive Overview */}
+                {parsedSummary.overview && (
+                  <div className="flex flex-col gap-2.5 p-4 rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm shadow-2xs card-linear">
+                    <div className="flex items-center gap-2 pb-1.5 border-b border-border/40">
+                      <span className="text-[10px] font-mono uppercase tracking-widest font-bold text-muted-foreground">
+                        Overview
+                      </span>
+                    </div>
+                    <div className="text-sm sm:text-[15px] leading-relaxed text-foreground/90 whitespace-pre-line font-serif sm:leading-relaxed">
+                      {parsedSummary.overview}
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. Key Findings & Technical Analysis */}
+                {parsedSummary.findings.length > 0 && (
+                  <div className="flex flex-col gap-3 p-4 rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm shadow-2xs card-linear">
+                    <div className="flex items-center gap-2 pb-1.5 border-b border-border/40">
+                      <span className="text-[10px] font-mono uppercase tracking-widest font-bold text-muted-foreground">
+                        Key Analysis & Findings
+                      </span>
+                    </div>
+                    <ul className="flex flex-col gap-3.5 pl-0.5">
+                      {parsedSummary.findings.map((point, idx) => (
+                        <li
+                          key={idx}
+                          className="flex items-start gap-3 text-sm text-foreground/90 leading-relaxed"
+                        >
+                          <span className="h-1.5 w-1.5 rounded-full bg-foreground/60 mt-2 shrink-0" />
+                          <div className="flex-1">{renderFormattedTakeaway(point)}</div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* 3. Strategic Implications & Conclusion */}
+                {parsedSummary.implications && (
+                  <div className="flex flex-col gap-2.5 p-4 rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm shadow-2xs card-linear">
+                    <div className="flex items-center gap-2 pb-1.5 border-b border-border/40">
+                      <span className="text-[10px] font-mono uppercase tracking-widest font-bold text-muted-foreground">
+                        Strategic Implications & Conclusion
+                      </span>
+                    </div>
+                    <div className="text-sm sm:text-[15px] leading-relaxed text-foreground/90 whitespace-pre-line font-serif sm:leading-relaxed">
+                      {parsedSummary.implications}
+                    </div>
+                  </div>
+                )}
+
+                {/* Professional Footer */}
+                <div className="pt-2 border-t border-border/40 flex flex-wrap items-center justify-between gap-2 text-[10px] text-muted-foreground font-mono">
+                  <span>Independent Research Synthesis</span>
+                  <span>Synthesized via Gemini 2.5 Flash • Stored in Local Cache</span>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Fallback Banner if only summary extracted */}
         {article.isSummaryFallback && (
