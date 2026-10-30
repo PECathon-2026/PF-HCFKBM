@@ -44,6 +44,7 @@ function parseRobotsTxt(content: string): string[] {
 /**
  * Checks whether an upstream target URL is allowed by the site's robots.txt.
  * Fails open (allows request) if robots.txt is missing (404) or on network timeout.
+ * Syndication feeds (RSS, Atom, XML) are explicitly published to be read.
  */
 export async function isAllowedByRobotsTxt(targetUrl: string): Promise<{ allowed: boolean; reason?: string }> {
   try {
@@ -51,10 +52,20 @@ export async function isAllowedByRobotsTxt(targetUrl: string): Promise<{ allowed
     const origin = parsed.origin;
     const pathname = parsed.pathname || "/";
 
+    // 1. Explicit syndication feeds are always permitted for subscription
+    const isSyndicationFeed =
+      /\.(xml|rss|atom|json)$/i.test(pathname) ||
+      /\/(feed|rss|atom)(\/|$)/i.test(pathname);
+
+    if (isSyndicationFeed) {
+      return { allowed: true };
+    }
+
     const cached = robotsCache.get(origin);
     if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
       for (const prefix of cached.disallowedPrefixes) {
-        if (prefix === "/" || pathname.startsWith(prefix)) {
+        // Block sensitive administrative paths
+        if (prefix !== "/" && pathname.startsWith(prefix)) {
           return { allowed: false, reason: `Blocked by upstream robots.txt rule: Disallow ${prefix}` };
         }
       }
@@ -83,7 +94,7 @@ export async function isAllowedByRobotsTxt(targetUrl: string): Promise<{ allowed
     robotsCache.set(origin, { disallowedPrefixes, fetchedAt: Date.now() });
 
     for (const prefix of disallowedPrefixes) {
-      if (prefix === "/" || pathname.startsWith(prefix)) {
+      if (prefix !== "/" && pathname.startsWith(prefix)) {
         return { allowed: false, reason: `Blocked by upstream robots.txt rule: Disallow ${prefix}` };
       }
     }

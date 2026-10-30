@@ -29,6 +29,7 @@ import {
   type GraphEdge,
 } from "@/lib/api";
 import { addSubscription, getSubscriptions } from "@/lib/db";
+import { refreshFeed } from "@/lib/sync";
 
 const FALLBACK_RECOMMENDATIONS: RecommendedFeedItem[] = [
   {
@@ -152,12 +153,30 @@ export default function DiscoverPage() {
 
   const handleFollow = async (id: string, title: string, url: string, category?: string) => {
     setFollowedIds((prev) => new Set(prev).add(id));
-    await addSubscription({
+    const subRecord = {
       id: `sub-disc-${id}`,
       title,
       url,
+      siteUrl: url.startsWith("http") ? new URL(url).origin : undefined,
       category: category || "Discovered",
-    }).catch(() => {});
+      status: "active" as const,
+      errorCount: 0,
+      createdAt: Date.now(),
+    };
+
+    await addSubscription(subRecord).catch(() => {});
+    setSyncFeedback(`Subscribed to ${title}! Downloading latest articles...`);
+    setTimeout(() => setSyncFeedback(null), 3500);
+
+    // Fetch and parse articles live via CORS proxy
+    refreshFeed(subRecord, { force: true })
+      .then((res) => {
+        if (res.success && res.newArticlesCount && res.newArticlesCount > 0) {
+          setSyncFeedback(`Downloaded ${res.newArticlesCount} articles from ${title}! Check your Timeline.`);
+          setTimeout(() => setSyncFeedback(null), 4000);
+        }
+      })
+      .catch(() => {});
   };
 
   const handleSyncBatch = async () => {
@@ -171,9 +190,17 @@ export default function DiscoverPage() {
         setIsSubmittingBatch(false);
         return;
       }
+
       await submitDiscoveryUrls(urls);
-      setSyncFeedback(`Anonymously submitted batch of ${urls.length} feed URLs for co-occurrence calculation.`);
-      setTimeout(() => setSyncFeedback(null), 4000);
+
+      // Re-fetch recommendations based on freshly submitted co-occurrence cluster
+      const freshRecs = await getDiscoveryRecommendations(urls).catch(() => null);
+      if (freshRecs && freshRecs.items && freshRecs.items.length > 0) {
+        setRecommendations(freshRecs.items);
+      }
+
+      setSyncFeedback(`Shared anonymous batch of ${urls.length} feeds! Recommendations updated based on reader overlap.`);
+      setTimeout(() => setSyncFeedback(null), 4500);
     } catch {
       setSyncFeedback("Anonymous batch queued to discovery edge buffer.");
       setTimeout(() => setSyncFeedback(null), 3500);

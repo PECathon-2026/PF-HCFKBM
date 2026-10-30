@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import DOMPurify from "dompurify";
 import {
   ExternalLink,
   BookOpen,
@@ -21,6 +20,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { extractArticle } from "@/lib/parser";
+import { sanitizeHtml } from "@/lib/sanitizer";
 import {
   ReadingControls,
   type ReaderFontSize,
@@ -57,203 +57,20 @@ interface ArticleDetail {
   isSummaryFallback: boolean;
 }
 
-const SAMPLE_ARTICLES: ArticleDetail[] = [
-  {
-    id: "art-1",
-    feedTitle: "Changelog Weekly",
-    feedCategory: "Systems & Architecture",
-    title: "Rust in Linux: What 2 Years of Production Kernel Drivers Taught Us",
-    summary:
-      "A retrospective on memory safety guarantees in Linux subsystems, C interoperability hurdles, and real-world performance benchmarks across storage drivers.",
-    author: "Elena Rostova",
-    publishedDate: "October 28, 2026",
-    readingTimeMinutes: 6,
-    originalUrl: "https://changelog.com/weekly/rust-in-linux",
-    isSummaryFallback: false,
-    content: `
-      <p class="lead">
-        Two years after the Rust infrastructure was first merged into the mainline Linux kernel tree, production drivers are quietly serving critical I/O across modern hyperscale storage fleets. Here is what two years of production telemetry, unsafe FFI wrappers, and cross-language stack unwinding taught our engineering group.
-      </p>
-
-      <h2>The Eradication of UAF and Lock-Drop Hazards</h2>
-      <p>
-        In low-level kernel C development, the vast majority of severe security advisories trace back to subtle lifecycle hazards: Use-After-Free (UAF), double-frees in obscure error unwinding branches, and race conditions resulting from missed mutex unlock sequences.
-      </p>
-      <p>
-        By implementing Rust's strict Resource Acquisition Is Initialization (RAII) pattern across kernel subsystem lock wrappers, our team eliminated lock-drop hazards entirely. Once a <code>Guard&lt;'a, Mutex&gt;</code> goes out of scope—whether through nominal completion or early branch returns—the lock handle drops with zero runtime latency.
-      </p>
-
-      <blockquote>
-        "Memory safety is not just an academic guarantee; in production storage tiers, eliminating silent memory corruptions translates directly into hundreds of hours saved in root-cause crash triage."
-      </blockquote>
-
-      <h2>Zero-Cost Abstractions at the FFI Boundary</h2>
-      <p>
-        A frequent concern voiced by systems engineers during early RFC discussions was potential binary bloat and latency penalties introduced by mapping native kernel C primitives into Rust abstractions.
-      </p>
-      <p>
-        In extensive benchmarks measuring random 4K NVMe read requests over 10 million transactions, the Rust driver achieved parity with the battle-tested C driver, clocking within a 0.38% margin of error. The compiler optimizations performed by LLVM across inline C-FFI thunks effectively erased the boundary overhead in hot execution loops.
-      </p>
-
-      <h2>Cognitive Friction and Toolchain Evolution</h2>
-      <p>
-        The primary bottleneck was never runtime performance; it was ergonomic integration with Linux's existing build harness (Kbuild) and internal patch verification workflows. Writing sound abstractions over C macro-heavy dispatch tables required meticulous use of unsafe blocks and custom bindgen generators.
-      </p>
-      <p>
-        As the ecosystem matured, community tooling like <code>kernel-bindgen</code> and pinned LLVM compiler targets reduced friction significantly. Today, our engineering team ships storage feature updates with significantly greater confidence and dramatically fewer defensive code assertions.
-      </p>
-    `,
-  },
-  {
-    id: "art-2",
-    feedTitle: "Vercel Engineering",
-    feedCategory: "Frontend",
-    title: "Next-gen Edge Middleware: Sub-5ms Geo Routing with WebAssembly",
-    summary:
-      "Deep dive into compiling native C++ routing rules into WASM running directly on edge PoPs, avoiding origin roundtrips entirely.",
-    author: "Malik Chen",
-    publishedDate: "October 27, 2026",
-    readingTimeMinutes: 4,
-    originalUrl: "https://vercel.com/blog",
-    isSummaryFallback: false,
-    content: `
-      <p class="lead">
-        Routing user traffic across distributed edge Points of Presence requires lightning fast execution. By compiling routing policies into WebAssembly, we eliminated origin roundtrips while preserving full programmability.
-      </p>
-      <h2>Sub-5 Millisecond Execution Budgets</h2>
-      <p>
-        Traditional serverless cold starts introduce noticeable latency penalties. WASM micro-sandboxes instantiate in sub-millisecond windows with strict memory caps.
-      </p>
-      <p>
-        By moving path rewrites, header validations, and tenant routing rules into ahead-of-time compiled WASM modules, edge nodes resolve incoming client requests without waking centralized origin clusters.
-      </p>
-      <h2>Memory Sandboxing at Cloudflare &amp; Fastly Edges</h2>
-      <p>
-        Each edge request executes inside an isolated linear memory buffer. Even if a third-party plugin encounters a fatal trap, neighboring requests in the same process remain uncompromised.
-      </p>
-    `,
-  },
-  {
-    id: "art-3",
-    feedTitle: "Simon Willison's Weblog",
-    feedCategory: "AI / Dev",
-    title: "Sandboxing Agent Code Execution with SQLite WASM and Content Security Policies",
-    summary:
-      "Patterns for safely executing untrusted SQL and data transformations generated by LLMs in isolated browser-side virtual tables.",
-    author: "Simon Willison",
-    publishedDate: "October 26, 2026",
-    readingTimeMinutes: 8,
-    originalUrl: "https://simonwillison.net",
-    isSummaryFallback: false,
-    content: `
-      <p class="lead">
-        Executing untrusted code generated by AI models requires multi-layer defense. Running SQLite entirely in WASM with strict origin policies provides a robust sandbox directly in the client.
-      </p>
-      <h2>Virtual Filesystems in IndexedDB</h2>
-      <p>
-        SQLite's VFS (Virtual File System) maps directly into browser-side IndexedDB persistence, enabling complete offline queries without exposing server assets.
-      </p>
-      <p>
-        When an AI agent writes an exploratory SQL aggregation over personal feeds, executing that query in an in-memory WASM table ensures prompt injections can never exfiltrate tokens or reach private API backends.
-      </p>
-      <blockquote>
-        "The best security boundary for untrusted code execution is the user's own device with zero network privileges."
-      </blockquote>
-    `,
-  },
-  {
-    id: "art-4",
-    feedTitle: "Hacker News",
-    feedCategory: "Tech & Society",
-    title: "Show HN: OnlyDevs – Offline-First RSS Reader with Turso Edge Synchronization",
-    summary:
-      "Scaffolded with Dexie.js in the browser and edge proxy SSRF defense to reliably digest thousands of tech feeds without server bloat.",
-    author: "samarrv",
-    publishedDate: "October 25, 2026",
-    readingTimeMinutes: 3,
-    originalUrl: "https://news.ycombinator.com",
-    isSummaryFallback: false,
-    content: `
-      <p class="lead">
-        OnlyDevs was born from a simple frustration: modern feed readers have become bloated social networks that track your clicks, sell your reading habits, and paywall basic offline features.
-      </p>
-      <h2>Zero Tracking by Architectural Invariant</h2>
-      <p>
-        By delegating all feed parsing, article sanitization, and reading progress tracking to browser-side IndexedDB (via Dexie.js), the server operates purely as a stateless, non-logging CORS stream proxy.
-      </p>
-      <h2>Anonymous Co-Subscription Graph Discovery</h2>
-      <p>
-        Instead of collaborative filtering based on user profiling, discovery recommendations leverage mathematical co-occurrence batches submitted with rotating, salted IP hashes. Readers discover handcrafted indie developer blogs without trading their privacy.
-      </p>
-    `,
-  },
-  {
-    id: "art-5",
-    feedTitle: "Overreacted",
-    feedCategory: "Frontend",
-    title: "A Thorough Farewell to Layout Thrashing and Manual Cache Busting",
-    summary:
-      "Understanding compiler-optimized memoization and how React 19 transforms fine-grained component re-renders into predictable micro-tasks.",
-    author: "Dan Abramov",
-    publishedDate: "October 24, 2026",
-    readingTimeMinutes: 5,
-    originalUrl: "https://overreacted.io",
-    isSummaryFallback: false,
-    content: `
-      <p class="lead">
-        For years, optimizing React applications felt like walking a tightrope between layout thrashing and premature memoization. We peppered our components with <code>useMemo</code>, <code>useCallback</code>, and manual dependency arrays, hoping the runtime wouldn't drop frames during burst renders.
-      </p>
-
-      <h2>The False Promise of Manual Memoization</h2>
-      <p>
-        Every React developer knows the ritual: a table slows down, you pull up the React DevTools Profiler, spot unnecessary re-renders, and wrap three handlers in <code>useCallback</code>. Two weeks later, another teammate edits a closure, forgets an argument in the dependency array, and either causes a stale closure bug or breaks memoization entirely.
-      </p>
-      <p>
-        Manual memoization was always a compiler problem masquerading as a developer responsibility. Human developers shouldn't be human linter-compilers verifying referential equality.
-      </p>
-
-      <blockquote>
-        "Premature memoization doesn't just clutter your codebase with boilerplate; it actively introduces subtle concurrency and lifecycle bugs that are notoriously difficult to reproduce in CI."
-      </blockquote>
-
-      <h2>How the React Compiler Changes the Game</h2>
-      <p>
-        Instead of asking developers to manually memorize values, the compiler performs static semantic analysis across your component tree. It identifies which values actually depend on reactive state and automatically generates fine-grained memoization boundaries at the AST level.
-      </p>
-      <p>
-        Here is what a typical component looks like before and after compilation:
-      </p>
-
-      <pre><code>// What you write today:
-function FeedStream({ feeds, filter }) {
-  const visibleFeeds = feeds.filter(f =&gt; f.category === filter);
-  return &lt;FeedList items={visibleFeeds} /&gt;;
-}
-
-// What the compiler outputs under the hood:
-function FeedStream({ feeds, filter }) {
-  const $ = useMemoCache(2);
-  let visibleFeeds;
-  if ($[0] !== feeds || $[1] !== filter) {
-    visibleFeeds = feeds.filter(f =&gt; f.category === filter);
-    $[0] = feeds;
-    $[1] = filter;
-  } else {
-    visibleFeeds = $[0];
-  }
-  return &lt;FeedList items={visibleFeeds} /&gt;;
-}</code></pre>
-
-      <h2>Eliminating Layout Thrashing in Feed Readers</h2>
-      <p>
-        When building high-density feed readers, DOM layout thrashing—interleaving reads of <code>offsetHeight</code> or <code>scrollTop</code> with writes to <code>style.transform</code>—triggers forced synchronous reflows. By offloading layout calculations into CSS transforms and leveraging React 19's asynchronous transitions, rendering 500+ timeline entries remains locked at a consistent 60 FPS.
-      </p>
-    `,
-  },
-];
+const EMPTY_ARTICLE: ArticleDetail = {
+  id: "",
+  feedTitle: "Feed Source",
+  title: "Loading Story...",
+  summary: "",
+  content: "",
+  publishedDate: "",
+  readingTimeMinutes: 1,
+  originalUrl: "",
+  isSummaryFallback: false,
+};
 
 export default function ReaderPage({ params }: ReaderProps) {
-  const [article, setArticle] = useState<ArticleDetail>(SAMPLE_ARTICLES[0]);
+  const [article, setArticle] = useState<ArticleDetail>(EMPTY_ARTICLE);
   const [fontSize, setFontSize] = useState<ReaderFontSize>("base");
   const [numericFontSize, setNumericFontSize] = useState<number>(18);
   const [lineHeight, setLineHeight] = useState<number>(1.85);
@@ -264,7 +81,7 @@ export default function ReaderPage({ params }: ReaderProps) {
   const [isRead, setIsRead] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
-  const [availableArticles, setAvailableArticles] = useState<ArticleDetail[]>(SAMPLE_ARTICLES);
+  const [availableArticles, setAvailableArticles] = useState<ArticleDetail[]>([]);
   const [savedReadingSpot, setSavedReadingSpot] = useState<ReadingSpotData | null>(null);
   const [showResumeBanner, setShowResumeBanner] = useState(false);
   const [markerNotice, setMarkerNotice] = useState<string | null>(null);
@@ -291,7 +108,10 @@ export default function ReaderPage({ params }: ReaderProps) {
   }, [params.id]);
 
   // Full article extractor using @mozilla/readability via CORS proxy
-  const handleExtractFullArticle = async (url?: string) => {
+  const handleExtractFullArticle = async (
+    url?: string,
+    fallbackMeta?: { title?: string; summary?: string; content?: string }
+  ) => {
     const targetUrl = url || article.originalUrl;
     if (!targetUrl || !targetUrl.startsWith("http") || isExtracting) return;
 
@@ -305,7 +125,7 @@ export default function ReaderPage({ params }: ReaderProps) {
         const rawHtml = await res.text();
         const extracted = await extractArticle(
           rawHtml,
-          {
+          fallbackMeta || {
             title: article.title,
             summary: article.summary,
             content: article.content,
@@ -313,7 +133,7 @@ export default function ReaderPage({ params }: ReaderProps) {
           targetUrl
         );
 
-        if (extracted.content && extracted.content.length > 150) {
+        if (extracted.content && extracted.content.length > 100) {
           setArticle((prev) => ({
             ...prev,
             content: extracted.content,
@@ -352,12 +172,10 @@ export default function ReaderPage({ params }: ReaderProps) {
     // Load current article
     db.articles
       .get(params.id)
-      .then((record) => {
+      .then(async (record) => {
         if (mounted && record) {
-          // Check if sample fixture has full rich text
-          const sampleMatch = SAMPLE_ARTICLES.find(
-            (a) => a.id === params.id || a.title === record.title
-          );
+          const parentSub = await db.subscriptions.get(record.subscriptionId).catch(() => undefined);
+          const friendlyFeedTitle = parentSub?.title || record.subscriptionId || "Feed Source";
 
           const hasRealContent =
             record.content &&
@@ -366,7 +184,7 @@ export default function ReaderPage({ params }: ReaderProps) {
 
           const chosenContent = hasRealContent
             ? record.content
-            : sampleMatch?.content || record.content || record.summary;
+            : record.content || record.summary;
 
           const isFallback =
             !chosenContent ||
@@ -374,51 +192,54 @@ export default function ReaderPage({ params }: ReaderProps) {
 
           setArticle({
             id: record.id,
-            feedTitle: record.subscriptionId || "Feed Source",
+            feedTitle: friendlyFeedTitle,
+            feedCategory: parentSub?.category,
             title: record.title,
             summary: record.summary,
             content: chosenContent,
-            author: record.author || sampleMatch?.author || "Anonymous Author",
+            author: record.author || friendlyFeedTitle || "Staff",
             publishedDate: new Date(record.publishedAt).toLocaleDateString(),
-            readingTimeMinutes: record.readingTimeMinutes || sampleMatch?.readingTimeMinutes || 4,
-            originalUrl: record.url || sampleMatch?.originalUrl || "",
+            readingTimeMinutes: record.readingTimeMinutes || 4,
+            originalUrl: record.url || "",
             isSummaryFallback: isFallback,
           });
           setIsBookmarked(record.isBookmarked);
           setIsRead(record.isRead);
 
-          // If content is only a short summary and URL is available, auto-extract
+          // If content is short or empty and URL is available, auto-extract
           if (isFallback && record.url && record.url.startsWith("http")) {
-            handleExtractFullArticle(record.url);
+            handleExtractFullArticle(record.url, {
+              title: record.title,
+              summary: record.summary,
+              content: record.content,
+            });
           }
-        } else if (mounted) {
-          const match =
-            SAMPLE_ARTICLES.find((a) => a.id === params.id) ||
-            (params.id === "art-1" || params.id === "demo-1" ? SAMPLE_ARTICLES[0] : undefined);
-          if (match) setArticle(match);
         }
       })
       .catch(() => {});
 
     // Load available articles for Library / Bookmarks drawer
-    getArticles()
-      .then((stored) => {
+    Promise.all([
+      getArticles().catch(() => []),
+      db.subscriptions.toArray().catch(() => []),
+    ])
+      .then(([stored, subs]) => {
         if (mounted && stored && stored.length > 0) {
+          const subMap = new Map(subs.map((s) => [s.id, s]));
           const mapped: ArticleDetail[] = stored.map((r) => {
-            const sample = SAMPLE_ARTICLES.find(
-              (a) => a.id === r.id || a.title === r.title
-            );
+            const parent = subMap.get(r.subscriptionId);
             return {
               id: r.id,
-              feedTitle: r.subscriptionId || "Feed Source",
+              feedTitle: parent?.title || r.subscriptionId || "Feed Source",
+              feedCategory: parent?.category,
               title: r.title,
               summary: r.summary,
-              content: r.content || sample?.content,
+              content: r.content,
               author: r.author,
               publishedDate: new Date(r.publishedAt).toLocaleDateString(),
               readingTimeMinutes: r.readingTimeMinutes || 4,
               originalUrl: r.url,
-              isSummaryFallback: !r.content && !sample?.content,
+              isSummaryFallback: !r.content,
             };
           });
           setAvailableArticles(mapped);
@@ -530,37 +351,11 @@ export default function ReaderPage({ params }: ReaderProps) {
     window.dispatchEvent(new Event("themechange"));
   };
 
-  // Crucial: Sanitize HTML content with DOMPurify against XSS
+  // Crucial: Sanitize HTML content with zero-trust sanitizer (resolves relative image URLs)
   const sanitizedContent = useMemo(() => {
     if (!article.content) return "";
-    if (typeof window !== "undefined") {
-      return DOMPurify.sanitize(article.content, {
-        USE_PROFILES: { html: true },
-        ALLOWED_TAGS: [
-          "p",
-          "h1",
-          "h2",
-          "h3",
-          "h4",
-          "blockquote",
-          "ul",
-          "ol",
-          "li",
-          "code",
-          "pre",
-          "strong",
-          "em",
-          "a",
-          "span",
-          "div",
-          "img",
-          "hr",
-        ],
-        ALLOWED_ATTR: ["href", "src", "alt", "class", "target", "rel"],
-      });
-    }
-    return article.content;
-  }, [article.content]);
+    return sanitizeHtml(article.content, { baseUrl: article.originalUrl });
+  }, [article.content, article.originalUrl]);
 
   // Typography mappings
   const fontSizeClasses: Record<ReaderFontSize, string> = {
