@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Lora, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/Sidebar";
+import { OfflineBootstrap } from "@/components/OfflineBootstrap";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -40,6 +41,8 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <meta name="theme-color" content="#0b0d12" />
         <script
           dangerouslySetInnerHTML={{
             __html: `
@@ -58,6 +61,7 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen bg-background text-foreground flex flex-col font-sans antialiased selection:bg-primary/10 selection:text-primary transition-colors duration-200 relative overflow-x-hidden">
+        <OfflineBootstrap />
         <Sidebar />
         <main className="flex-1 w-full flex flex-col min-w-0 relative z-10 md:pl-64 transition-all duration-200">
           {children}

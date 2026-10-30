@@ -226,8 +226,8 @@ export async function getClientRankedRecommendations(options?: {
 
     const jaccard = computeJaccardSimilarity(userCategorySet, candCategories);
 
-    // Blended score: server recommendation score is primary; local similarity adds up to 20% boost
-    const finalScore = Math.round(cand.score * (1 + 0.2 * jaccard));
+    // Keep local similarity available for sorting without presenting invented precision in the UI.
+    const finalScore = Math.round(jaccard * 100);
 
     return {
       ...cand,

@@ -25,7 +25,6 @@ export interface RecommendedFeed {
   url: string;
   category: string;
   reason: string;
-  score: number;
 }
 
 export interface RecommendationsResponse {
@@ -349,6 +348,7 @@ discoveryRouter.get(
           f.id,
           f.url,
           COALESCE(f.title, f.url) as title,
+          COALESCE(f.description, '') as description,
           COUNT(bf.batch_id) as subscriber_count
         FROM feeds f
         LEFT JOIN batch_feeds bf ON f.id = bf.feed_id
@@ -363,14 +363,20 @@ discoveryRouter.get(
         args: targetFeedIds,
       });
 
-      const fallbackItems: RecommendedFeed[] = fallbackResults.rows.map((row) => ({
-        id: String(row.id),
-        title: String(row.title),
-        url: String(row.url),
-        category: "Popular Independent",
-        reason: "Trending among independent small web readers",
-        score: 80,
-      }));
+      const fallbackItems: RecommendedFeed[] = fallbackResults.rows.map((row) => {
+        const title = String(row.title);
+        const url = String(row.url);
+        const description = String(row.description || "");
+        const category = description || "Independent publication";
+
+        return {
+          id: String(row.id),
+          title,
+          url,
+          category,
+          reason: description || `Community batch count: ${Number(row.subscriber_count || 0)}`,
+        };
+      });
 
       res.status(200).json({
         items: fallbackItems,

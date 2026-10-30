@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
-import { db } from "@/db/turso";
+import { db, ensureDbBootstrapped } from "@/db/turso";
 import { GraphNode, GraphEdge } from "@/routes/discovery";
+import { enforceNextRateLimit } from "@/lib/next-rate-limit";
+import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const rateLimitResponse = await enforceNextRateLimit(request, "discovery-graph");
+    if (rateLimitResponse) return rateLimitResponse;
+    await ensureDbBootstrapped();
+
     const nodesResult = await db.execute(`
       SELECT f.id, COALESCE(f.title, f.url) as label
       FROM feeds f

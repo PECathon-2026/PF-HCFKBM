@@ -31,83 +31,11 @@ import {
 import { addSubscription, getSubscriptions } from "@/lib/db";
 import { refreshFeed } from "@/lib/sync";
 
-const FALLBACK_RECOMMENDATIONS: RecommendedFeedItem[] = [
-  {
-    id: "rec-1",
-    title: "Changelog Weekly",
-    url: "https://changelog.com/weekly/feed",
-    category: "Software Engineering",
-    reason: "Followed by readers of Rust in Linux & Hacker News",
-    score: 96,
-  },
-  {
-    id: "rec-2",
-    title: "TypeScript Weekly",
-    url: "https://typescript-weekly.com/rss",
-    category: "Languages & Tooling",
-    reason: "Frequently co-read alongside Vercel Engineering",
-    score: 91,
-  },
-  {
-    id: "rec-3",
-    title: "Latent Space AI",
-    url: "https://www.latent.space/feed",
-    category: "AI & Agents",
-    reason: "High similarity score with your recent Simon Willison reads",
-    score: 87,
-  },
-  {
-    id: "rec-4",
-    title: "Robin Sloan's Lab Notes",
-    url: "https://www.robinsloan.com/feed.xml",
-    category: "Indie Web",
-    reason: "Curated quiet publication with zero ad tracking",
-    score: 84,
-  },
-];
-
-const FALLBACK_POPULAR: PopularFeedItem[] = [
-  {
-    id: "pop-1",
-    title: "Hacker News Frontpage",
-    url: "https://news.ycombinator.com/rss",
-    subscriberCount: 28400,
-    trendingRank: 1,
-  },
-  {
-    id: "pop-2",
-    title: "BBC News Technology",
-    url: "http://feeds.bbci.co.uk/news/technology/rss.xml",
-    subscriberCount: 19800,
-    trendingRank: 2,
-  },
-  {
-    id: "pop-3",
-    title: "Smashing Magazine",
-    url: "https://www.smashingmagazine.com/feed/",
-    subscriberCount: 12500,
-    trendingRank: 3,
-  },
-  {
-    id: "pop-4",
-    title: "Dan Abramov's Overreacted",
-    url: "https://overreacted.io/rss.xml",
-    subscriberCount: 10400,
-    trendingRank: 4,
-  },
-];
-
-const POPULAR_TOPICS: Record<string, string> = {
-  "pop-1": "Tech & Society",
-  "pop-2": "Global Tech",
-  "pop-3": "Design & UI",
-  "pop-4": "Frontend & React",
-};
 
 export default function DiscoverPage() {
   const [activeTab, setActiveTab] = useState<"recommendations" | "popular" | "graph">("recommendations");
-  const [recommendations, setRecommendations] = useState<RecommendedFeedItem[]>(FALLBACK_RECOMMENDATIONS);
-  const [popularFeeds, setPopularFeeds] = useState<PopularFeedItem[]>(FALLBACK_POPULAR);
+  const [recommendations, setRecommendations] = useState<RecommendedFeedItem[]>([]);
+  const [popularFeeds, setPopularFeeds] = useState<PopularFeedItem[]>([]);
   const [graphNodes, setGraphNodes] = useState<GraphNode[]>([]);
   const [graphEdges, setGraphEdges] = useState<GraphEdge[]>([]);
   const [followedIds, setFollowedIds] = useState<Set<string>>(new Set());
@@ -116,26 +44,37 @@ export default function DiscoverPage() {
   const [isOptInEnabled, setIsOptInEnabled] = useState(false);
   const [isSubmittingBatch, setIsSubmittingBatch] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+  const [isLoadingDiscovery, setIsLoadingDiscovery] = useState(true);
 
   // Attempt to fetch from API if available
   useEffect(() => {
     let mounted = true;
 
-    getDiscoveryRecommendations()
-      .then((res) => {
-        if (mounted && res && res.items && res.items.length > 0) {
-          setRecommendations(res.items);
-        }
-      })
-      .catch(() => {});
+    const loadDiscovery = async () => {
+      setIsLoadingDiscovery(true);
+      try {
+        const localSubs = await getSubscriptions();
+        const urls = localSubs.map((subscription) => subscription.url);
+        const [recommendationResult, popularResult] = await Promise.all([
+          getDiscoveryRecommendations(urls),
+          getPopularFeeds(urls),
+        ]);
 
-    getPopularFeeds()
-      .then((res) => {
-        if (mounted && res && res.items && res.items.length > 0) {
-          setPopularFeeds(res.items);
+        if (mounted) {
+          setRecommendations(recommendationResult.items || []);
+          setPopularFeeds(popularResult.items || []);
         }
-      })
-      .catch(() => {});
+      } catch {
+        if (mounted) {
+          setRecommendations([]);
+          setPopularFeeds([]);
+        }
+      } finally {
+        if (mounted) setIsLoadingDiscovery(false);
+      }
+    };
+
+    loadDiscovery();
 
     getDiscoveryGraph()
       .then((res) => {
@@ -193,13 +132,15 @@ export default function DiscoverPage() {
 
       await submitDiscoveryUrls(urls);
 
-      // Re-fetch recommendations based on freshly submitted co-occurrence cluster
-      const freshRecs = await getDiscoveryRecommendations(urls).catch(() => null);
-      if (freshRecs && freshRecs.items && freshRecs.items.length > 0) {
-        setRecommendations(freshRecs.items);
-      }
+      // Re-fetch recommendations and popular feeds using the updated local set.
+      const [freshRecs, freshPopular] = await Promise.all([
+        getDiscoveryRecommendations(urls),
+        getPopularFeeds(urls),
+      ]);
+      setRecommendations(freshRecs.items || []);
+      setPopularFeeds(freshPopular.items || []);
 
-      setSyncFeedback(`Shared anonymous batch of ${urls.length} feeds! Recommendations updated based on reader overlap.`);
+      setSyncFeedback(`Shared an anonymous batch of ${urls.length} feeds. Discovery data updated.`);
       setTimeout(() => setSyncFeedback(null), 4500);
     } catch {
       setSyncFeedback("Anonymous batch queued to discovery edge buffer.");
@@ -340,7 +281,19 @@ export default function DiscoverPage() {
             Ranked by mutual reader co-subscriptions and cluster topic proximity.
           </p>
           <div className="grid grid-cols-1 gap-4">
-            {recommendations.map((rec) => {
+            {isLoadingDiscovery ? (
+              <div className="py-14 px-6 text-center rounded-xl border border-border/60 bg-card/60" role="status" aria-live="polite">
+                <RefreshCw className="mx-auto h-4 w-4 animate-spin text-muted-foreground" />
+                <p className="mt-3 text-sm text-foreground">Loading live discovery data…</p>
+              </div>
+            ) : recommendations.length === 0 ? (
+              <div className="py-14 px-6 text-center rounded-xl border border-border/60 bg-card/60">
+                <p className="text-sm text-foreground">No live recommendations yet.</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Recommendations appear after the discovery service has anonymous co-subscription data.
+                </p>
+              </div>
+            ) : recommendations.map((rec) => {
               const isFollowed = followedIds.has(rec.id);
 
               return (
@@ -353,8 +306,8 @@ export default function DiscoverPage() {
                       <span className="font-medium text-foreground px-2 py-0.5 rounded-md bg-secondary/80 text-[11px] border border-border/40">
                         {rec.category}
                       </span>
-                      <span className="font-mono text-[11px] px-2 py-0.5 rounded-full badge-emerald font-semibold">
-                        {rec.score}% Match
+                      <span className="font-mono text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border/50">
+                        {rec.category}
                       </span>
                     </div>
 
@@ -364,9 +317,6 @@ export default function DiscoverPage() {
 
                     {/* Transparent Reason Tag with Soft Tint */}
                     <div className="text-xs text-muted-foreground leading-relaxed flex items-start gap-2 bg-muted/40 p-3 rounded-lg border border-border/40">
-                      <span className="text-foreground font-semibold shrink-0">
-                        Why recommended:
-                      </span>
                       <span>{rec.reason}</span>
                     </div>
                   </div>
@@ -418,10 +368,22 @@ export default function DiscoverPage() {
       {activeTab === "popular" && (
         <div className="flex flex-col gap-4">
           <p className="text-xs text-muted-foreground">
-            Global developer publications ranked by community subscription velocity.
+            Publications ordered by anonymous co-subscription batch counts.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {popularFeeds.map((pop) => {
+            {isLoadingDiscovery ? (
+              <div className="md:col-span-2 py-14 px-6 text-center rounded-xl border border-border/60 bg-card/60" role="status" aria-live="polite">
+                <RefreshCw className="mx-auto h-4 w-4 animate-spin text-muted-foreground" />
+                <p className="mt-3 text-sm text-foreground">Loading live popularity data…</p>
+              </div>
+            ) : popularFeeds.length === 0 ? (
+              <div className="md:col-span-2 py-14 px-6 text-center rounded-xl border border-border/60 bg-card/60">
+                <p className="text-sm text-foreground">No live popularity data yet.</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  This view stays empty until anonymous discovery batches provide real counts.
+                </p>
+              </div>
+            ) : popularFeeds.map((pop) => {
               const isFollowed = followedIds.has(pop.id);
 
               return (
@@ -445,13 +407,15 @@ export default function DiscoverPage() {
                       >
                         #{pop.trendingRank}
                       </span>
-                      <span className="font-medium text-foreground px-2 py-0.5 rounded-md bg-secondary/80 text-[11px] border border-border/40">
-                        {POPULAR_TOPICS[pop.id] || "Technology"}
+                      <span className="font-mono text-[11px] text-muted-foreground">
+                        {pop.subscriberCount > 0
+                          ? `${pop.subscriberCount.toLocaleString()} anonymous batches`
+                          : "No community batch data yet"}
                       </span>
                     </div>
 
                     <span className="text-xs font-mono text-muted-foreground">
-                      {pop.subscriberCount.toLocaleString()} readers
+                      {pop.subscriberCount.toLocaleString()} batches
                     </span>
                   </div>
 
@@ -477,7 +441,7 @@ export default function DiscoverPage() {
 
                     <button
                       onClick={() =>
-                        handleFollow(pop.id, pop.title, pop.url, POPULAR_TOPICS[pop.id] || "Popular")
+                        handleFollow(pop.id, pop.title, pop.url, "Discovered")
                       }
                       disabled={isFollowed}
                       className={cn(

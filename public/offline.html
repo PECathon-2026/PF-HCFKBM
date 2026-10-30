@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OnlyDevs — Offline Reader</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #0b0d12; color: #eef1f6; }
+    body { margin: 0; background: #0b0d12; }
+    main { max-width: 760px; margin: 0 auto; padding: 48px 20px 80px; }
+    a { color: #a9c7ff; }
+    .status { color: #aab4c3; font: 12px ui-monospace, monospace; letter-spacing: .04em; }
+    h1 { font: 600 clamp(2rem, 6vw, 4rem)/1.08 Georgia, serif; margin: 16px 0; }
+    .meta { color: #aab4c3; font-size: 14px; border-bottom: 1px solid #2b3240; padding-bottom: 22px; }
+    .body { font: 18px/1.8 Georgia, serif; }
+    .body img, .body video { max-width: 100%; height: auto; }
+    .body pre { overflow: auto; padding: 16px; background: #151a23; }
+    .empty { padding: 24px 0; color: #aab4c3; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="status">ONLYDEVS / OFFLINE READER</div>
+    <div id="app" class="empty">Opening the cached story…</div>
+  </main>
+  <script>
+    (function () {
+      var app = document.getElementById('app');
+      var queryId = new URLSearchParams(location.search).get('article');
+      var id = queryId || decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || '');
+
+      function safeHtml(html) {
+        var template = document.createElement('template');
+        template.innerHTML = html || '';
+        template.content.querySelectorAll('script, iframe, object, embed, form, base, style, link, meta').forEach(function (node) { node.remove(); });
+        template.content.querySelectorAll('*').forEach(function (node) {
+          Array.from(node.attributes).forEach(function (attr) {
+            var name = attr.name.toLowerCase();
+            var value = attr.value.trim();
+            if (name.indexOf('on') === 0 || name === 'srcdoc' || (name === 'href' && /^javascript:/i.test(value)) || (name === 'src' && /^javascript:/i.test(value))) {
+              node.removeAttribute(attr.name);
+            }
+          });
+        });
+        return template.innerHTML;
+      }
+
+      function render(article, subscription) {
+        if (!article) {
+          app.innerHTML = '<h1>Story unavailable offline</h1><p class="empty">This story has not been cached on this device yet. Reconnect once, open it, and it will be available offline.</p><p><a href="/">Return to timeline</a></p>';
+          return;
+        }
+        var title = document.createElement('h1');
+        title.textContent = article.title || 'Untitled story';
+        var meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.textContent = (subscription && subscription.title ? subscription.title : 'Feed') + ' · ' + new Date(article.publishedAt || Date.now()).toLocaleDateString();
+        var body = document.createElement('div');
+        body.className = 'body';
+        if (article.content && article.content.length > 100) body.innerHTML = safeHtml(article.content);
+        else { body.textContent = article.summary || 'No cached article body is available.'; }
+        app.replaceChildren(title, meta, body);
+      }
+
+      var request = indexedDB.open('OnlyDevsClientDB');
+      request.onerror = function () { render(null); };
+      request.onsuccess = function () {
+        var database = request.result;
+        try {
+          var transaction = database.transaction(['articles', 'subscriptions'], 'readonly');
+          var articleRequest = transaction.objectStore('articles').get(id);
+          articleRequest.onsuccess = function () {
+            var article = articleRequest.result;
+            if (!article) { render(null); return; }
+            var subscriptionRequest = transaction.objectStore('subscriptions').get(article.subscriptionId);
+            subscriptionRequest.onsuccess = function () { render(article, subscriptionRequest.result); };
+            subscriptionRequest.onerror = function () { render(article); };
+          };
+        } catch (_) { render(null); }
+      };
+    })();
+  </script>
+</body>
+</html>
