@@ -21,7 +21,6 @@ export interface RecommendedFeedItem {
   url: string;
   category: string;
   reason: string;
-  score: number;
 }
 
 export interface RecommendationsResult {
@@ -155,8 +154,14 @@ export async function getDiscoveryRecommendations(userFeedUrls: string[] = []): 
 /**
  * Fetches popular/trending feeds from /api/discovery/popular
  */
-export async function getPopularFeeds(): Promise<PopularResult> {
-  const response = await fetch(`${API_BASE_URL}/api/discovery/popular`, {
+export async function getPopularFeeds(userFeedUrls: string[] = []): Promise<PopularResult> {
+  let endpoint = `${API_BASE_URL}/api/discovery/popular`;
+  if (userFeedUrls.length > 0) {
+    const query = encodeURIComponent(userFeedUrls.join(","));
+    endpoint += `?feeds=${query}`;
+  }
+
+  const response = await fetch(endpoint, {
     headers: { Accept: "application/json" },
   });
 

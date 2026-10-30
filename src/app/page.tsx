@@ -691,20 +691,21 @@ export default function TimelinePage() {
               No articles found
             </h3>
             <p className="text-xs text-muted-foreground max-w-sm leading-relaxed">
-              {search || selectedTag || selectedFeed
-                ? "No stories match your active topic, feed, or keyword filter."
+              {search || selectedTag || selectedFeed || filter !== "all"
+                ? "No stories match your active topic, feed, status, or keyword filter."
                 : "No articles match this filter. Take a breath, or explore new feeds in the Discover tab."}
             </p>
-            {(search || selectedTag || selectedFeed) && (
+            {(search || selectedTag || selectedFeed || filter !== "all") && (
               <button
                 onClick={() => {
                   setSearch("");
                   setSelectedTag(null);
                   setSelectedFeed(null);
+                  setFilter("all");
                 }}
-                className="mt-2 text-xs text-foreground font-medium underline underline-offset-4 hover:opacity-80 btn-press"
+                className="mt-2 px-4 py-2 rounded-xl bg-foreground text-background text-xs font-medium hover:opacity-90 btn-press transition-all shadow-xs"
               >
-                Reset All Filters
+                Reset All Filters & View All Stories
               </button>
             )}
           </div>

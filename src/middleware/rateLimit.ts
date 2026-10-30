@@ -11,10 +11,14 @@ let ratelimitInstance: Ratelimit | null = null;
  * Ensures the server never stores plain IP addresses.
  */
 export function hashClientIp(ip: string): string {
-  const salt = process.env.IP_SALT || "onlydevs_secure_discovery_salt_v1";
+  const salt = process.env.IP_SALT;
+  if (!salt && process.env.NODE_ENV === "production") {
+    throw new Error("IP_SALT is required in production");
+  }
+  const effectiveSalt = salt || "development-only-salt";
   const dateBucket = new Date().toISOString().slice(0, 13); // Rotates every hour
   return crypto
-    .createHmac("sha256", salt)
+    .createHmac("sha256", effectiveSalt)
     .update(`${dateBucket}:${ip}`)
     .digest("hex")
     .slice(0, 32);

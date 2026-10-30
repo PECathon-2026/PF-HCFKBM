@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
-import { db } from "@/db/turso";
+import { db, ensureDbBootstrapped } from "@/db/turso";
 import { normalizeUrl, feedIdFromUrl } from "@/routes/discovery";
 import { getClientIp, hashClientIp } from "@/middleware/rateLimit";
+import { enforceNextRateLimit } from "@/lib/next-rate-limit";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
+    const rateLimitResponse = await enforceNextRateLimit(request, "discovery-submit");
+    if (rateLimitResponse) return rateLimitResponse;
+    await ensureDbBootstrapped();
     const body = await request.json().catch(() => ({}));
     const { urls } = body;
 

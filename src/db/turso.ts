@@ -157,3 +157,30 @@ export async function executeQuery<T = Record<string, unknown>>(
     throw new Error(`DB Error: ${message}`);
   }
 }
+
+let isBootstrapped = false;
+let bootstrapPromise: Promise<void> | null = null;
+
+/**
+ * Idempotently ensures all database tables and seed clusters are initialized.
+ */
+export async function ensureDbBootstrapped(): Promise<void> {
+  if (isBootstrapped) return;
+  if (bootstrapPromise) return bootstrapPromise;
+
+  bootstrapPromise = (async () => {
+    try {
+      await runMigrations();
+      // Runtime API routes only ensure schema availability. Curated data seeding
+      // belongs to the dedicated server bootstrap, never to a request path.
+      isBootstrapped = true;
+    } catch (err) {
+      console.error("[Turso Bootstrap Error]:", err);
+    } finally {
+      bootstrapPromise = null;
+    }
+  })();
+
+  return bootstrapPromise;
+}
+

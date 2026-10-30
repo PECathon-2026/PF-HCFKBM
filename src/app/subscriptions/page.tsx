@@ -22,6 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Modal } from "@/components/Modal";
 import {
+  db,
   getSubscriptions,
   addSubscription,
   type Subscription,
@@ -36,60 +37,10 @@ interface SubscriptionWithMeta extends Omit<Subscription, "status"> {
   status: SubscriptionStatus | "syncing";
 }
 
-const INITIAL_SUBSCRIPTIONS: SubscriptionWithMeta[] = [
-  {
-    id: "sub-1",
-    title: "Changelog Weekly",
-    url: "https://changelog.com/weekly/feed",
-    siteUrl: "https://changelog.com",
-    category: "Software Engineering",
-    articlesCount: 42,
-    lastSyncedText: "10 mins ago",
-    status: "active",
-    errorCount: 0,
-    createdAt: Date.now() - 1000 * 60 * 60 * 24 * 5,
-  },
-  {
-    id: "sub-2",
-    title: "Hacker News Top Stories",
-    url: "https://news.ycombinator.com/rss",
-    siteUrl: "https://news.ycombinator.com",
-    category: "Tech & Startups",
-    articlesCount: 156,
-    lastSyncedText: "2 mins ago",
-    status: "active",
-    errorCount: 0,
-    createdAt: Date.now() - 1000 * 60 * 60 * 24 * 10,
-  },
-  {
-    id: "sub-3",
-    title: "Vercel Blog",
-    url: "https://vercel.com/atom",
-    siteUrl: "https://vercel.com",
-    category: "Frontend",
-    articlesCount: 18,
-    lastSyncedText: "1 hour ago",
-    status: "active",
-    errorCount: 0,
-    createdAt: Date.now() - 1000 * 60 * 60 * 24 * 14,
-  },
-  {
-    id: "sub-4",
-    title: "Simon Willison's Weblog",
-    url: "https://simonwillison.net/atom/everything/",
-    siteUrl: "https://simonwillison.net",
-    category: "AI / Python",
-    articlesCount: 89,
-    lastSyncedText: "4 hours ago",
-    status: "stale",
-    errorCount: 0,
-    createdAt: Date.now() - 1000 * 60 * 60 * 24 * 20,
-  },
-];
 
 export default function SubscriptionsPage() {
   const [subscriptions, setSubscriptions] =
-    useState<SubscriptionWithMeta[]>(INITIAL_SUBSCRIPTIONS);
+    useState<SubscriptionWithMeta[]>([]);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [feedUrl, setFeedUrl] = useState("");
   const [feedCategory, setFeedCategory] = useState("Technology");
@@ -104,14 +55,16 @@ export default function SubscriptionsPage() {
   useEffect(() => {
     let mounted = true;
     getSubscriptions()
-      .then((records) => {
-        if (mounted && records && records.length > 0) {
-          const mapped: SubscriptionWithMeta[] = records.map((r) => ({
+      .then(async (records) => {
+        if (mounted && records) {
+          const mapped: SubscriptionWithMeta[] = await Promise.all(records.map(async (r) => ({
             ...r,
-            articlesCount: 12,
-            lastSyncedText: "Just now",
-            status: "active",
-          }));
+            articlesCount: await db.articles.where("subscriptionId").equals(r.id).count(),
+            lastSyncedText: r.lastFetchedAt
+              ? new Date(r.lastFetchedAt).toLocaleString()
+              : "Not synced yet",
+            status: r.status,
+          })));
           setSubscriptions(mapped);
         }
       })
@@ -202,7 +155,7 @@ export default function SubscriptionsPage() {
               s.id === newSub.id
                 ? {
                     ...s,
-                    lastSyncedText: "Just now",
+                    lastSyncedText: res.success ? new Date().toLocaleString() : "Sync failed",
                     articlesCount: res.newArticlesCount ?? s.articlesCount,
                     status: res.success ? "active" : "error",
                   }
@@ -249,7 +202,7 @@ export default function SubscriptionsPage() {
           s.id === id
             ? {
                 ...s,
-                lastSyncedText: "Just now",
+                lastSyncedText: "Not synced yet",
                 articlesCount: res.newArticlesCount !== undefined ? res.newArticlesCount : s.articlesCount,
                 status: res.success ? ("active" as const) : ("error" as const),
               }
@@ -358,7 +311,7 @@ export default function SubscriptionsPage() {
             newSubs.push({
               ...subRecord,
               articlesCount: 0,
-              lastSyncedText: "Just now",
+              lastSyncedText: "Not synced yet",
               status: "active",
               createdAt: Date.now(),
             });

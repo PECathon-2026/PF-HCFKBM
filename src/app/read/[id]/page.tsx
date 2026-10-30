@@ -358,20 +358,13 @@ export default function ReaderPage({ params }: ReaderProps) {
   }, [article.content, article.originalUrl]);
 
   // Typography mappings
-  const fontSizeClasses: Record<ReaderFontSize, string> = {
-    sm: "text-base leading-relaxed",
-    base: "text-lg leading-relaxed",
-    lg: "text-xl leading-loose",
-    xl: "text-2xl leading-loose",
-  };
-
-  const fontFamilyStyles: Record<ReaderFontFamily, string> = {
-    serif: "font-serif",
-    newsreader: "font-serif",
-    sans: "font-sans",
-    georgia: "font-serif",
-    merriweather: "font-serif",
-    mono: "font-mono",
+  const FONT_FAMILY_DEFINITIONS: Record<ReaderFontFamily, string> = {
+    serif: "var(--font-serif), 'Lora', 'Charter', Georgia, serif",
+    newsreader: "'Newsreader', 'Times New Roman', 'Baskerville', serif",
+    georgia: "'Georgia', 'Cambria', 'Times New Roman', serif",
+    merriweather: "'Merriweather', 'Book Antiqua', Georgia, serif",
+    sans: "var(--font-sans), system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    mono: "var(--font-mono), 'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
   };
 
   const columnWidthClasses: Record<ReaderColumnWidth, string> = {
@@ -549,6 +542,9 @@ export default function ReaderPage({ params }: ReaderProps) {
           "flex-1 mx-auto w-full px-4 sm:px-8 md:px-12 py-8 sm:py-14 flex flex-col gap-8 transition-all duration-200",
           columnWidthClasses[columnWidth]
         )}
+        style={{
+          fontFamily: FONT_FAMILY_DEFINITIONS[fontFamily],
+        }}
       >
         {/* Article Metadata Header */}
         <header className="flex flex-col gap-4 pb-8 border-b border-border/50">
@@ -578,7 +574,10 @@ export default function ReaderPage({ params }: ReaderProps) {
 
           <h1
             className="font-medium tracking-tight leading-[1.18] transition-all duration-150"
-            style={{ fontSize: `${Math.round(numericFontSize * 2.1)}px` }}
+            style={{
+              fontSize: `${Math.round(numericFontSize * 2.1)}px`,
+              fontFamily: "inherit",
+            }}
           >
             {article.title}
           </h1>
@@ -646,12 +645,9 @@ export default function ReaderPage({ params }: ReaderProps) {
 
         {/* Sanitized Article Body */}
         <article
-          className={cn(
-            "reader-prose flex flex-col transition-all duration-150",
-            fontFamilyStyles[fontFamily] || "font-serif",
-            fontSizeClasses[fontSize]
-          )}
+          className="reader-prose flex flex-col transition-all duration-150"
           style={{
+            fontFamily: "inherit",
             fontSize: `${numericFontSize}px`,
             lineHeight: lineHeight,
           }}
