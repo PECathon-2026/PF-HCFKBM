@@ -103,11 +103,26 @@ export default function DiscoverPage() {
       createdAt: Date.now(),
     };
 
+    const validation = await refreshFeed(subRecord, { force: true }).catch(() => ({
+      success: false,
+      error: "Feed validation failed. The publication could not be fetched.",
+    }));
+    if (!validation.success) {
+      setFollowedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      setSyncFeedback(validation.error || "Feed validation failed.");
+      setTimeout(() => setSyncFeedback(null), 4000);
+      return;
+    }
+
     await addSubscription(subRecord).catch(() => {});
-    setSyncFeedback(`Subscribed to ${title}! Downloading latest articles...`);
+    setSyncFeedback(`Subscribed to ${title}. Feed verified and cached.`);
     setTimeout(() => setSyncFeedback(null), 3500);
 
-    // Fetch and parse articles live via CORS proxy
+    // Refresh again only to report the live ingestion result to this view.
     refreshFeed(subRecord, { force: true })
       .then((res) => {
         if (res.success && res.newArticlesCount && res.newArticlesCount > 0) {
